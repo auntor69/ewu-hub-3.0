@@ -81,7 +81,9 @@ function Sidebar({ role }: { role: Role }) {
   );
 }
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
+import { Outlet } from 'react-router-dom';
+
+export const AppShell: React.FC = () => {
   const { user, profile, signOut } = useAuth();
 
   return (
@@ -131,9 +133,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </header>
 
         <main className="p-6">
-          <div className="max-w-7xl mx-auto">{children}</div>
+          <div className="max-w-7xl mx-auto">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>
   );
-}
