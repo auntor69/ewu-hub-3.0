@@ -1,54 +1,58 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { supabase } from "./supabaseClient";
 
-interface User {
-  id: string;
-  email: string;
-}
+type Role = "student" | "faculty" | "admin" | "staff";
+type Profile = { user_id: string; role: Role } | null;
 
-interface Profile {
-  user_id: string;
-  role: 'student' | 'faculty' | 'staff' | 'admin';
-  student_id?: string;
-  faculty_id?: string;
-}
-
-interface AuthContextType {
-  user: User | null;
-  profile: Profile | null;
+type AuthState = {
+  loading: boolean;
+  user: any | null;
+  profile: Profile;
   signOut: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextType | null>(null);
-
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
 };
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Placeholder state - will be replaced with real Supabase auth in Phase 2
-  const [user] = useState<User | null>({
-    id: 'demo-user-123',
-    email: 'demo@ewu.edu'
-  });
-  
-  const [profile] = useState<Profile | null>({
-    user_id: 'demo-user-123',
-    role: 'student',
-    student_id: '12345'
-  });
+const AuthContext = createContext<AuthState>({
+  loading: true,
+  user: null,
+  profile: null,
+  signOut: async () => {},
+});
 
-  const signOut = async () => {
-    // TODO(Supabase): Implement real sign out
-    console.log('Sign out called - will be implemented with Supabase');
-  };
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<any | null>(null);
+  const [profile, setProfile] = useState<Profile>(null);
+
+  async function load() {
+    const { data: { session } } = await supabase.auth.getSession();
+    setUser(session?.user ?? null);
+
+    if (session?.user) {
+      const { data } = await supabase
+        .from("profiles")
+        .select("user_id, role")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+      if (data) setProfile(data as Profile);
+    } else {
+      setProfile(null);
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    load();
+    const { data: sub } = supabase.auth.onAuthStateChange(() => load());
+    return () => { sub.subscription.unsubscribe(); };
+  }, []);
+
+  async function signOut() { await supabase.auth.signOut(); }
 
   return (
-    <AuthContext.Provider value={{ user, profile, signOut }}>
+    <AuthContext.Provider value={{ loading, user, profile, signOut }}>
       {children}
     </AuthContext.Provider>
   );
-};
+}
+
+export function useAuth() { return useContext(AuthContext); }
