@@ -5,7 +5,7 @@ import { AlertTriangle, DollarSign, Calendar, User, CheckCircle, X } from 'lucid
 import { Card, Button, Badge, Table, Select, PageTransition } from '../../lib/ui';
 import { EmptyState } from '../../components/EmptyState';
 import { useToast } from '../../lib/ui';
-import { updatePenaltyStatus } from '../../actions/admin';
+import { updatePenaltyStatus, getAllPenalties } from '../../actions/admin';
 
 interface Penalty {
   id: string;
@@ -24,36 +24,38 @@ export const PenaltiesManagement: React.FC = () => {
   const { addToast } = useToast();
   const [penalties, setPenalties] = React.useState<Penalty[]>([]);
   const [filter, setFilter] = React.useState('all');
-  const [showPreview, setShowPreview] = React.useState(false);
   const [loading, setLoading] = React.useState<string | null>(null);
+  const [loadingPenalties, setLoadingPenalties] = React.useState(true);
 
-  // Demo penalty data (only shown when preview is toggled)
-  const demoPenalties: Penalty[] = [
-    {
-      id: 'penalty-1',
-      bookingId: 'booking-123',
-      userId: 'user-456',
-      userName: 'John Doe',
-      userEmail: 'john.doe@ewu.edu',
-      amount: 500,
-      reason: 'No-show for library booking',
-      status: 'pending',
-      createdAt: '2024-12-19',
-      resource: 'Library 601 - Table 5'
-    },
-    {
-      id: 'penalty-2',
-      bookingId: 'booking-789',
-      userId: 'user-321',
-      userName: 'Jane Smith',
-      userEmail: 'jane.smith@ewu.edu',
-      amount: 300,
-      reason: 'Late cancellation of lab equipment',
-      status: 'paid',
-      createdAt: '2024-12-18',
-      resource: 'CLS-205 - CSE Equipment'
+  React.useEffect(() => {
+    loadPenalties();
+  }, []);
+
+  const loadPenalties = async () => {
+    try {
+      const data = await getAllPenalties();
+      const formattedPenalties: Penalty[] = data.map(penalty => ({
+        id: penalty.id,
+        bookingId: penalty.booking_id,
+        userId: penalty.bookings?.booked_for || '',
+        userName: 'User',
+        userEmail: penalty.bookings?.profiles?.users?.email || 'Unknown',
+        amount: penalty.amount_tk,
+        reason: penalty.reason,
+        status: penalty.status as any,
+        createdAt: new Date(penalty.created_at).toLocaleDateString(),
+        resource: 'Resource'
+      }));
+      setPenalties(formattedPenalties);
+    } catch (error) {
+      addToast({
+        type: 'error',
+        message: 'Failed to load penalties'
+      });
+    } finally {
+      setLoadingPenalties(false);
     }
-  ];
+  };
 
   const filterOptions = [
     { value: 'all', label: 'All Penalties' },
@@ -68,12 +70,10 @@ export const PenaltiesManagement: React.FC = () => {
     try {
       await updatePenaltyStatus(penaltyId, newStatus);
       
-      if (showPreview) {
-        // Update demo data
-        setPenalties(prev => prev.map(p => 
-          p.id === penaltyId ? { ...p, status: newStatus } : p
-        ));
-      }
+      // Update local state
+      setPenalties(prev => prev.map(p => 
+        p.id === penaltyId ? { ...p, status: newStatus } : p
+      ));
       
       addToast({
         type: 'success',
@@ -81,17 +81,10 @@ export const PenaltiesManagement: React.FC = () => {
       });
       
     } catch (error) {
-      if (error instanceof Error && error.message === "NOT_CONNECTED") {
-        addToast({
-          type: 'info',
-          message: 'Not connected yet — Supabase wiring comes next'
-        });
-      } else {
-        addToast({
-          type: 'error',
-          message: `Failed to update penalty status`
-        });
-      }
+      addToast({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to update penalty status'
+      });
     } finally {
       setLoading(null);
     }
@@ -105,10 +98,17 @@ export const PenaltiesManagement: React.FC = () => {
     }
   };
 
-  // Use demo data if preview is enabled, otherwise use empty penalties
-  const displayPenalties = showPreview ? demoPenalties : penalties;
+  if (loadingPenalties) {
+    return (
+      <PageTransition>
+        <div className="flex items-center justify-center min-h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+        </div>
+      </PageTransition>
+    );
+  }
 
-  const filteredPenalties = displayPenalties.filter(penalty => 
+  const filteredPenalties = penalties.filter(penalty => 
     filter === 'all' || penalty.status === filter
   );
 
@@ -203,12 +203,12 @@ export const PenaltiesManagement: React.FC = () => {
 
   const getStats = () => {
     return {
-      total: displayPenalties.length,
-      pending: displayPenalties.filter(p => p.status === 'pending').length,
-      paid: displayPenalties.filter(p => p.status === 'paid').length,
-      waived: displayPenalties.filter(p => p.status === 'waived').length,
-      totalAmount: displayPenalties.reduce((sum, p) => sum + p.amount, 0),
-      pendingAmount: displayPenalties.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0)
+      total: penalties.length,
+      pending: penalties.filter(p => p.status === 'pending').length,
+      paid: penalties.filter(p => p.status === 'paid').length,
+      waived: penalties.filter(p => p.status === 'waived').length,
+      totalAmount: penalties.reduce((sum, p) => sum + p.amount, 0),
+      pendingAmount: penalties.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0)
     };
   };
 
@@ -223,13 +223,6 @@ export const PenaltiesManagement: React.FC = () => {
             <h1 className="text-3xl font-bold text-gray-900">Penalty Management</h1>
             <p className="text-gray-600 mt-2">Review and manage financial penalties for booking violations.</p>
           </div>
-          
-          <Button
-            variant="secondary"
-            onClick={() => setShowPreview(!showPreview)}
-          >
-            {showPreview ? 'Hide' : 'Show'} Demo Data
-          </Button>
         </div>
 
         {/* Stats Cards */}
@@ -279,11 +272,17 @@ export const PenaltiesManagement: React.FC = () => {
         </Card>
 
         {/* Penalties Table */}
-        {filteredPenalties.length === 0 ? (
+        {penalties.length === 0 ? (
           <EmptyState
             icon="settings"
-            title={displayPenalties.length === 0 ? "No penalties recorded" : "No penalties match filter"}
-            description={displayPenalties.length === 0 ? "Financial penalties will appear here when violations occur." : "Try selecting a different filter option."}
+            title="No penalties recorded"
+            description="Financial penalties will appear here when violations occur."
+          />
+        ) : filteredPenalties.length === 0 ? (
+          <EmptyState
+            icon="settings"
+            title="No penalties match filter"
+            description="Try selecting a different filter option."
           />
         ) : (
           <Table

@@ -49,18 +49,15 @@ export const OpeningHours: React.FC = () => {
     try {
       await updateOpeningHours(hours);
       setHasChanges(false);
+      addToast({
+        type: 'success',
+        message: 'Opening hours updated successfully!'
+      });
     } catch (error) {
-      if (error instanceof Error && error.message === "NOT_CONNECTED") {
-        addToast({
-          type: 'info',
-          message: 'Not connected yet — Supabase wiring comes next'
-        });
-      } else {
-        addToast({
-          type: 'error',
-          message: 'Failed to update opening hours'
-        });
-      }
+      addToast({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to update opening hours'
+      });
     } finally {
       setLoading(false);
     }

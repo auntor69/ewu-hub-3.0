@@ -41,28 +41,26 @@ export const CheckIn: React.FC = () => {
     try {
       await checkInByCode(attendanceCode);
       
-      // Add to recent check-ins for demo
+      // Add to recent check-ins
       const newCheckIn = {
         code: attendanceCode,
         time: new Date().toLocaleTimeString(),
-        resource: 'Library 601 - Table 5',
-        student: 'Demo Student'
+        resource: 'Checked in successfully',
+        student: 'Student'
       };
       setRecentCheckIns(prev => [newCheckIn, ...prev.slice(0, 4)]);
       setAttendanceCode('');
       
+      addToast({
+        type: 'success',
+        message: 'Student checked in successfully!'
+      });
+      
     } catch (error) {
-      if (error instanceof Error && error.message === "NOT_CONNECTED") {
-        addToast({
-          type: 'info',
-          message: 'Not connected yet — Supabase wiring comes next'
-        });
-      } else {
-        addToast({
-          type: 'error',
-          message: 'Failed to check in with this code'
-        });
-      }
+      addToast({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to check in with this code'
+      });
     } finally {
       setLoading(false);
     }

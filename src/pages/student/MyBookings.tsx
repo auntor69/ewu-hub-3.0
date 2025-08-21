@@ -3,7 +3,7 @@ import { Calendar, Clock, MapPin, Hash, Trash2 } from 'lucide-react';
 import { Card, Button, Badge, Table, PageTransition } from '../../lib/ui';
 import { EmptyState } from '../../components/EmptyState';
 import { useToast } from '../../lib/ui';
-import { cancelBooking } from '../../actions/bookings';
+import { cancelBooking, getUserBookings } from '../../actions/bookings';
 
 interface Booking {
   id: string;
@@ -18,18 +18,34 @@ interface Booking {
 export const MyBookings: React.FC = () => {
   const { addToast } = useToast();
   const [bookings, setBookings] = React.useState<Booking[]>([]);
-  const [showPreview, setShowPreview] = React.useState(false);
   const [loading, setLoading] = React.useState<string | null>(null);
+  const [loadingBookings, setLoadingBookings] = React.useState(true);
 
-  // Demo booking data (only shown when preview is toggled)
-  const demoBooking: Booking = {
-    id: 'demo-123',
-    resource: 'Library 601 - Table 5, Seats 1-3',
-    date: new Date().toLocaleDateString(),
-    time: '14:00 - 16:00',
-    status: 'confirmed',
-    attendanceCode: 'hug3b4yqva',
-    type: 'library'
+  React.useEffect(() => {
+    loadBookings();
+  }, []);
+
+  const loadBookings = async () => {
+    try {
+      const data = await getUserBookings();
+      const formattedBookings: Booking[] = data.map(booking => ({
+        id: booking.id,
+        resource: booking.resources?.label || 'Unknown',
+        date: new Date(booking.start_ts).toLocaleDateString(),
+        time: `${new Date(booking.start_ts).toLocaleTimeString()} - ${new Date(booking.end_ts).toLocaleTimeString()}`,
+        status: booking.status as any,
+        attendanceCode: booking.attendance_code,
+        type: booking.resources?.kind === 'library_seat' ? 'library' : 'lab'
+      }));
+      setBookings(formattedBookings);
+    } catch (error) {
+      addToast({
+        type: 'error',
+        message: 'Failed to load bookings'
+      });
+    } finally {
+      setLoadingBookings(false);
+    }
   };
 
   const handleCancelBooking = async (bookingId: string) => {
@@ -38,18 +54,15 @@ export const MyBookings: React.FC = () => {
     try {
       await cancelBooking(bookingId);
       setBookings(prev => prev.filter(b => b.id !== bookingId));
+      addToast({
+        type: 'success',
+        message: 'Booking cancelled successfully'
+      });
     } catch (error) {
-      if (error instanceof Error && error.message === "NOT_CONNECTED") {
-        addToast({
-          type: 'info',
-          message: 'Not connected yet — Supabase wiring comes next'
-        });
-      } else {
-        addToast({
-          type: 'error',
-          message: 'Failed to cancel booking'
-        });
-      }
+      addToast({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to cancel booking'
+      });
     } finally {
       setLoading(null);
     }
@@ -65,7 +78,15 @@ export const MyBookings: React.FC = () => {
     }
   };
 
-  const displayBookings = showPreview ? [demoBooking] : bookings;
+  if (loadingBookings) {
+    return (
+      <PageTransition>
+        <div className="flex items-center justify-center min-h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+        </div>
+      </PageTransition>
+    );
+  }
 
   const columns = [
     {
@@ -158,13 +179,6 @@ export const MyBookings: React.FC = () => {
             <h1 className="text-3xl font-bold text-gray-900">My Bookings</h1>
             <p className="text-gray-600 mt-2">View and manage your current and past bookings.</p>
           </div>
-          
-          <Button
-            variant="secondary"
-            onClick={() => setShowPreview(!showPreview)}
-          >
-            {showPreview ? 'Hide' : 'Preview'} Demo Row
-          </Button>
         </div>
 
         {/* Stats Cards */}
@@ -174,7 +188,7 @@ export const MyBookings: React.FC = () => {
               <Calendar className="w-6 h-6 text-purple-600" />
             </div>
             <h3 className="text-2xl font-bold text-gray-900 mb-1">
-              {displayBookings.filter(b => b.status === 'confirmed').length}
+              {bookings.filter(b => b.status === 'confirmed').length}
             </h3>
             <p className="text-sm text-gray-600">Active Bookings</p>
           </Card>
@@ -184,7 +198,7 @@ export const MyBookings: React.FC = () => {
               <Clock className="w-6 h-6 text-green-600" />
             </div>
             <h3 className="text-2xl font-bold text-gray-900 mb-1">
-              {displayBookings.filter(b => b.status === 'completed').length}
+              {bookings.filter(b => b.status === 'completed').length}
             </h3>
             <p className="text-sm text-gray-600">Completed</p>
           </Card>
@@ -194,7 +208,7 @@ export const MyBookings: React.FC = () => {
               <MapPin className="w-6 h-6 text-blue-600" />
             </div>
             <h3 className="text-2xl font-bold text-gray-900 mb-1">
-              {displayBookings.filter(b => b.type === 'library').length}
+              {bookings.filter(b => b.type === 'library').length}
             </h3>
             <p className="text-sm text-gray-600">Library Sessions</p>
           </Card>
@@ -204,14 +218,14 @@ export const MyBookings: React.FC = () => {
               <Hash className="w-6 h-6 text-orange-600" />
             </div>
             <h3 className="text-2xl font-bold text-gray-900 mb-1">
-              {displayBookings.filter(b => b.type === 'lab').length}
+              {bookings.filter(b => b.type === 'lab').length}
             </h3>
             <p className="text-sm text-gray-600">Lab Sessions</p>
           </Card>
         </div>
 
         {/* Bookings Table */}
-        {displayBookings.length === 0 ? (
+        {bookings.length === 0 ? (
           <EmptyState
             icon="calendar"
             title="No bookings yet"
@@ -220,7 +234,7 @@ export const MyBookings: React.FC = () => {
         ) : (
           <Table
             columns={columns}
-            rows={displayBookings}
+            rows={bookings}
           />
         )}
 

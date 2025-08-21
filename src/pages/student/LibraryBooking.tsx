@@ -1,7 +1,7 @@
 // TODO(Supabase): On Confirm → INSERT INTO booking_groups + bookings for selected seats
 // Enforce: no overlap, max 6 seats, 1-hour slots, max 2 hours total (2 rows)
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BookOpen, Clock, Users, MapPin, CheckCircle } from 'lucide-react';
 import { Card, Button, TimeRangePicker, Badge, PageTransition } from '../../lib/ui';
 import { useToast } from '../../lib/ui';
@@ -14,15 +14,11 @@ interface Seat {
   tableId: number;
   seatNumber: number;
   status: SeatStatus;
-}
+import { bookLibrarySeats, getAvailableSeats } from '../../actions/bookings';
 
 export const LibraryBooking: React.FC = () => {
   const { addToast } = useToast();
   const [selectedSeats, setSelectedSeats] = React.useState<number[]>([]);
-  const [timeRange, setTimeRange] = React.useState<{ start: string; end: string }>({ start: '', end: '' });
-  const [loading, setLoading] = React.useState(false);
-  const [showPreview, setShowPreview] = React.useState(false);
-
   // Generate 20 tables with 6 seats each (120 total seats)
   const generateSeats = (): Seat[] => {
     const seats: Seat[] = [];
@@ -79,8 +75,51 @@ export const LibraryBooking: React.FC = () => {
   const handleConfirmBooking = async () => {
     if (selectedSeats.length === 0) {
       addToast({
+  const [availableSeats, setAvailableSeats] = React.useState<any[]>([]);
+  const [loadingSeats, setLoadingSeats] = React.useState(false);
         type: 'warning',
-        message: 'Please select at least one seat'
+  useEffect(() => {
+    if (timeRange.start && timeRange.end) {
+      loadAvailableSeats();
+    }
+  }, [timeRange]);
+
+  const loadAvailableSeats = async () => {
+    setLoadingSeats(true);
+    try {
+      const seats = await getAvailableSeats(timeRange.start, timeRange.end);
+      setAvailableSeats(seats);
+    } catch (error) {
+      addToast({
+        type: 'error',
+        message: 'Failed to load available seats'
+      });
+    } finally {
+      setLoadingSeats(false);
+    }
+  };
+
+  const toggleSeat = (seatId: number) => {
+    if (selectedSeats.includes(seatId)) {
+      setSelectedSeats(prev => prev.filter(id => id !== seatId));
+    } else {
+      if (selectedSeats.length >= 6) {
+        addToast({
+          type: 'warning',
+          message: 'Maximum 6 seats can be selected per booking'
+        });
+        return;
+      }
+      setSelectedSeats(prev => [...prev, seatId]);
+    }
+  };
+    }
+
+    setLoading(true);
+    
+    try {
+      await bookLibrarySeats({
+        selectedSeatIds: selectedSeats,
       });
       return;
     }
@@ -90,35 +129,27 @@ export const LibraryBooking: React.FC = () => {
         type: 'warning',
         message: 'Please select a time range'
       });
-      return;
-    }
-
-    setLoading(true);
-    
-    try {
-      await bookLibrarySeats({
-        selectedSeatIds: selectedSeats,
-        start: timeRange.start,
-        end: timeRange.end
+      
+      addToast({
+        type: 'success',
+        message: 'Library seats booked successfully!'
       });
+      
+      // Reset form
+      setSelectedSeats([]);
+      setTimeRange({ start: '', end: '' });
+      
     } catch (error) {
-      if (error instanceof Error && error.message === "NOT_CONNECTED") {
-        addToast({
-          type: 'info',
-          message: 'Not connected yet — Supabase wiring comes next'
-        });
-      } else {
-        addToast({
-          type: 'error',
-          message: 'Failed to book seats'
-        });
-      }
+      addToast({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to book seats'
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const getSeatColor = (status: SeatStatus) => {
+  const isFormValid = selectedSeats.length > 0 && timeRange.start && timeRange.end;
     switch (status) {
       case 'selected': return 'bg-purple-600 text-white border-purple-600';
       case 'unavailable': return 'bg-red-100 text-red-600 border-red-300 cursor-not-allowed';
