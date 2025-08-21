@@ -2,13 +2,12 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastProvider } from './lib/ui';
-import { AuthProvider } from './lib/AuthContext';
-import { AppShell } from './components/AppShell';
+import AppShell from './components/AppShell';
 
 // Pages
 import { Landing } from './pages/Landing';
-import { Login } from './pages/auth/Login';
-import { Signup } from './pages/auth/Signup';
+import Login from './pages/auth/Login';
+import Signup from './pages/auth/Signup';
 
 // Student Portal
 import { StudentDashboard } from './pages/student/Index';
