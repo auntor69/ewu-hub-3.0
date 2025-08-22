@@ -35,48 +35,46 @@ import { AuditLogs } from './pages/admin/AuditLogs';
 function App() {
   return (
     <ErrorBoundary>
-      <AuthProvider>
-        <ToastProvider>
-          <Router>
-            <div className="min-h-screen bg-gray-50">
-              <Routes>
-                {/* Public Routes */}
-                <Route path="/" element={<Landing />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/signup" element={<Signup />} />
-                
-                {/* Protected Routes - All roles use AppShell */}
-                <Route path="/student" element={<AppShell />}>
-                  <Route index element={<StudentDashboard />} />
-                  <Route path="library-booking" element={<LibraryBooking />} />
-                  <Route path="lab-booking" element={<LabBooking />} />
-                  <Route path="my-bookings" element={<MyBookings />} />
-                </Route>
-                
-                <Route path="/faculty" element={<AppShell />}>
-                  <Route index element={<FacultyDashboard />} />
-                  <Route path="room-booking" element={<RoomBooking />} />
-                  <Route path="my-classes" element={<MyClasses />} />
-                </Route>
-                
-                <Route path="/staff" element={<AppShell />}>
-                  <Route index element={<StaffDashboard />} />
-                  <Route path="check-in" element={<CheckIn />} />
-                  <Route path="today-bookings" element={<TodayBookings />} />
-                </Route>
-                
-                <Route path="/admin" element={<AppShell />}>
-                  <Route index element={<AdminDashboard />} />
-                  <Route path="users" element={<UsersManagement />} />
-                  <Route path="penalties" element={<PenaltiesManagement />} />
-                  <Route path="opening-hours" element={<OpeningHours />} />
-                  <Route path="audit-logs" element={<AuditLogs />} />
-                </Route>
-              </Routes>
-            </div>
-          </Router>
-        </ToastProvider>
-      </AuthProvider>
+      <ToastProvider>
+        <Router>
+          <div className="min-h-screen bg-gray-50">
+            <Routes>
+              {/* Public Routes */}
+              <Route path="/" element={<Landing />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/signup" element={<Signup />} />
+              
+              {/* Protected Routes - All roles use AppShell */}
+              <Route path="/student" element={<AppShell />}>
+                <Route index element={<StudentDashboard />} />
+                <Route path="library-booking" element={<LibraryBooking />} />
+                <Route path="lab-booking" element={<LabBooking />} />
+                <Route path="my-bookings" element={<MyBookings />} />
+              </Route>
+              
+              <Route path="/faculty" element={<AppShell />}>
+                <Route index element={<FacultyDashboard />} />
+                <Route path="room-booking" element={<RoomBooking />} />
+                <Route path="my-classes" element={<MyClasses />} />
+              </Route>
+              
+              <Route path="/staff" element={<AppShell />}>
+                <Route index element={<StaffDashboard />} />
+                <Route path="check-in" element={<CheckIn />} />
+                <Route path="today-bookings" element={<TodayBookings />} />
+              </Route>
+              
+              <Route path="/admin" element={<AppShell />}>
+                <Route index element={<AdminDashboard />} />
+                <Route path="users" element={<UsersManagement />} />
+                <Route path="penalties" element={<PenaltiesManagement />} />
+                <Route path="opening-hours" element={<OpeningHours />} />
+                <Route path="audit-logs" element={<AuditLogs />} />
+              </Route>
+            </Routes>
+          </div>
+        </Router>
+      </ToastProvider>
     </ErrorBoundary>
   );
 }
