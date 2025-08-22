@@ -1,12 +1,13 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
+import type { User } from "@supabase/supabase-js";
 
 type Role = "student" | "faculty" | "admin" | "staff";
-type Profile = { user_id: string; role: Role } | null;
+type Profile = { user_id: string; role: Role; student_id?: string; faculty_id?: string } | null;
 
 type AuthState = {
   loading: boolean;
-  user: any | null;
+  user: User | null;
   profile: Profile;
   signOut: () => Promise<void>;
 };
@@ -24,29 +25,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile>(null);
 
   async function load() {
+    try {
+      setLoading(true);
     const { data: { session } } = await supabase.auth.getSession();
     setUser(session?.user ?? null);
 
     if (session?.user) {
-      const { data } = await supabase
+        const { data, error } = await supabase
         .from("profiles")
-        .select("user_id, role")
+          .select("user_id, role, student_id, faculty_id")
         .eq("user_id", session.user.id)
-        .maybeSingle();
-      if (data) setProfile(data as Profile);
+          .single();
+        
+        if (error) {
+          console.error("Error fetching profile:", error);
+          setProfile(null);
+        } else if (data) {
+          setProfile(data as Profile);
+        }
     } else {
       setProfile(null);
     }
-    setLoading(false);
+    } catch (error) {
+      console.error("Error in auth load:", error);
+      setUser(null);
+      setProfile(null);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     load();
-    const { data: sub } = supabase.auth.onAuthStateChange(() => load());
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("Auth state changed:", event, session?.user?.email);
+      await load();
+    });
     return () => { sub.subscription.unsubscribe(); };
   }, []);
 
-  async function signOut() { await supabase.auth.signOut(); }
+  async function signOut() { 
+    await supabase.auth.signOut();
+    setUser(null);
+    setProfile(null);
+  }
 
   return (
     <AuthContext.Provider value={{ loading, user, profile, signOut }}>

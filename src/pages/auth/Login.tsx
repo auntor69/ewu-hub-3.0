@@ -1,21 +1,64 @@
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
+import { useAuth } from "../../lib/AuthContext";
 
 export default function Login() {
   const nav = useNavigate();
+  const { profile } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Redirect if already logged in
+  React.useEffect(() => {
+    if (profile) {
+      nav(`/${profile.role}`);
+    }
+  }, [profile, nav]);
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setErr(null); setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (error) { setErr(error.message); return; }
-    nav("/"); // Step 2 will add role-based redirects
+    setErr(null); 
+    setLoading(true);
+    
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ 
+        email: email.trim(), 
+        password 
+      });
+      
+      if (error) {
+        setErr(error.message);
+        return;
+      }
+
+      if (data.user) {
+        // Fetch user profile to determine role
+        const { data: profileData, error: profileError } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("user_id", data.user.id)
+          .single();
+
+        if (profileError) {
+          setErr("Failed to load user profile. Please try again.");
+          return;
+        }
+
+        // Redirect based on role
+        if (profileData?.role) {
+          nav(`/${profileData.role}`);
+        } else {
+          nav("/");
+        }
+      }
+    } catch (error) {
+      setErr("An unexpected error occurred. Please try again.");
+      console.error("Login error:", error);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
