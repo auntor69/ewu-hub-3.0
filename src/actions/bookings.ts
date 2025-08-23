@@ -1,29 +1,23 @@
-// Generate a random 10-character attendance code
-const generateAttendanceCode = () => {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  return Array.from({ length: 10 }, () =>
-    chars[Math.floor(Math.random() * chars.length)]
-  ).join('');
-};
-
+// src/actions/bookings.ts
 import { supabase } from '../lib/supabaseClient';
 
 export interface LibraryBookingParams {
-  selectedSeatIds: number[];
+  selectedSeatIds: number[]; // resource IDs, not library_seats IDs
   start: string;
   end: string;
 }
 
 export interface LabBookingParams {
-  equipmentType: string; // match label in resources
+  roomCode: string;
+  equipmentType: string;
   units: number;
   start: string;
   end: string;
 }
 
-//
-// LIBRARY BOOKING
-//
+/**
+ * Create a new library seat booking
+ */
 export const bookLibrarySeats = async (params: LibraryBookingParams): Promise<void> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
@@ -34,9 +28,10 @@ export const bookLibrarySeats = async (params: LibraryBookingParams): Promise<vo
     .insert({ created_by: user.id })
     .select()
     .single();
+
   if (groupError) throw groupError;
 
-  // Create individual seat bookings
+  // Insert individual bookings
   const bookings = params.selectedSeatIds.map(seatId => ({
     group_id: group.id,
     resource_id: seatId,
@@ -44,16 +39,15 @@ export const bookLibrarySeats = async (params: LibraryBookingParams): Promise<vo
     booked_for: user.id,
     start_ts: params.start,
     end_ts: params.end,
-    status: 'confirmed' as const,
-    attendance_code: generateAttendanceCode() // 👈 new
-}));
+    status: 'confirmed' as const
+  }));
 
   const { error: bookingError } = await supabase
     .from('bookings')
     .insert(bookings);
+
   if (bookingError) throw bookingError;
 
-  // Log audit entry
   await supabase.from('audit_logs').insert({
     user_id: user.id,
     action: 'booking.create',
@@ -61,53 +55,89 @@ export const bookLibrarySeats = async (params: LibraryBookingParams): Promise<vo
   });
 };
 
-//
-// LAB BOOKING
-//
+/**
+ * Create a new lab equipment booking
+ */
 export const bookLabEquipment = async (params: LabBookingParams): Promise<void> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
-  // Find available equipment resources
-  const { data: equipment, error: equipError } = await supabase
-    .from('resources')
+  // Get room by code
+  const { data: room, error: roomError } = await supabase
+    .from('rooms')
     .select('id')
-    .eq('kind', 'equipment_unit')
-    .ilike('label', `%${params.equipmentType}%`)
-    .limit(params.units);
-  if (equipError) throw equipError;
+    .eq('code', params.roomCode)
+    .single();
+  if (roomError || !room) throw new Error('Room not found');
 
-  if (!equipment || equipment.length < params.units) {
+  // Get equipment type
+  const { data: equipmentType, error: equipTypeError } = await supabase
+    .from('equipment_types')
+    .select('id')
+    .eq('name', params.equipmentType)
+    .single();
+  if (equipTypeError || !equipmentType) throw new Error('Equipment type not found');
+
+  // Get all equipment units in this room/type
+  const { data: units, error: equipError } = await supabase
+    .from('equipment_units')
+    .select('id')
+    .eq('room_id', room.id)
+    .eq('equipment_type_id', equipmentType.id);
+  if (equipError) throw equipError;
+  if (!units || units.length === 0) throw new Error('No equipment found for this room/type');
+
+  // Map equipment_units → resource IDs
+  const { data: resourcesData, error: resError } = await supabase
+    .from('resources')
+    .select('id, ref_id')
+    .eq('kind', 'equipment_unit')
+    .in('ref_id', units.map(u => u.id));
+  if (resError) throw resError;
+
+  const resourceIds = resourcesData.map(r => r.id);
+
+  // Find already booked ones in time window
+  const { data: conflicts, error: conflictError } = await supabase
+    .from('bookings')
+    .select('resource_id')
+    .in('resource_id', resourceIds)
+    .in('status', ['confirmed', 'arrived'])
+    .lt('start_ts', params.end)
+    .gt('end_ts', params.start);
+
+  if (conflictError) throw conflictError;
+
+  const unavailable = new Set(conflicts?.map(c => c.resource_id) ?? []);
+  const available = resourceIds.filter(id => !unavailable.has(id));
+
+  if (available.length < params.units) {
     throw new Error('Not enough equipment units available');
   }
 
   // Insert bookings
-  const bookings = equipment.map(unit => ({
-    resource_id: unit.id,
+  const bookings = available.slice(0, params.units).map(resourceId => ({
+    resource_id: resourceId,
     booked_by: user.id,
     booked_for: user.id,
     start_ts: params.start,
     end_ts: params.end,
-    status: 'confirmed' as const,
-    attendance_code: generateAttendanceCode()
+    status: 'confirmed' as const
   }));
 
-  const { error: bookingError } = await supabase
-    .from('bookings')
-    .insert(bookings);
+  const { error: bookingError } = await supabase.from('bookings').insert(bookings);
   if (bookingError) throw bookingError;
 
-  // Log audit entry
   await supabase.from('audit_logs').insert({
     user_id: user.id,
     action: 'booking.create',
-    payload: { type: 'lab', equipmentType: params.equipmentType, units: params.units }
+    payload: { type: 'lab', room: params.roomCode, units: params.units }
   });
 };
 
-//
-// CANCEL BOOKING
-//
+/**
+ * Cancel a booking
+ */
 export const cancelBooking = async (bookingId: string): Promise<void> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
@@ -117,6 +147,7 @@ export const cancelBooking = async (bookingId: string): Promise<void> => {
     .update({ status: 'cancelled' })
     .eq('id', bookingId)
     .eq('booked_by', user.id);
+
   if (error) throw error;
 
   await supabase.from('audit_logs').insert({
@@ -126,9 +157,9 @@ export const cancelBooking = async (bookingId: string): Promise<void> => {
   });
 };
 
-//
-// USER BOOKINGS
-//
+/**
+ * Get bookings of the current user
+ */
 export const getUserBookings = async () => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
@@ -142,61 +173,90 @@ export const getUserBookings = async () => {
       status,
       attendance_code,
       checked_in_at,
-      resources ( kind, label )
+      resources (
+        kind,
+        label
+      )
     `)
     .eq('booked_for', user.id)
     .order('start_ts', { ascending: false });
-  if (error) throw error;
 
+  if (error) throw error;
   return data;
 };
 
-//
-// AVAILABLE SEATS
-//
+/**
+ * Get available library seats in a given time window
+ */
 export const getAvailableSeats = async (startTime: string, endTime: string) => {
-  // All library seats
-  const { data: allSeats, error: seatsError } = await supabase
+  // All seat resources
+  const { data: resourcesData, error: resError } = await supabase
     .from('resources')
-    .select('id, label')
+    .select('id, ref_id, label')
     .eq('kind', 'library_seat');
-  if (seatsError) throw seatsError;
+  if (resError) throw resError;
 
-  // Booked seats
+  const seatIds = resourcesData.map(r => r.id);
+
+  // Find conflicts
   const { data: conflicts, error: conflictError } = await supabase
     .from('bookings')
     .select('resource_id')
+    .in('resource_id', seatIds)
     .in('status', ['confirmed', 'arrived'])
-    .filter('tstzrange(start_ts,end_ts,\'[)\')', 'overlaps', `[${startTime},${endTime})`);
+    .lt('start_ts', endTime)
+    .gt('end_ts', startTime);
   if (conflictError) throw conflictError;
 
-  const unavailable = new Set(conflicts.map(b => b.resource_id));
-  return allSeats.filter(seat => !unavailable.has(seat.id));
+  const unavailable = new Set(conflicts?.map(c => c.resource_id) ?? []);
+  const availableSeats = resourcesData.filter(r => !unavailable.has(r.id));
+
+  return availableSeats;
 };
 
-//
-// AVAILABLE EQUIPMENT
-//
-export const getAvailableEquipment = async (equipmentType: string, startTime: string, endTime: string) => {
-  // All equipment units
-  const { data: allEquip, error: equipError } = await supabase
+/**
+ * Get available equipment in a room/type in a given time window
+ */
+export const getAvailableEquipment = async (roomCode: string, equipmentType: string, startTime: string, endTime: string) => {
+  const { data: room, error: roomError } = await supabase
+    .from('rooms')
+    .select('id')
+    .eq('code', roomCode)
+    .single();
+  if (roomError || !room) throw roomError;
+
+  const { data: equipType, error: equipTypeError } = await supabase
+    .from('equipment_types')
+    .select('id')
+    .eq('name', equipmentType)
+    .single();
+  if (equipTypeError || !equipType) throw equipTypeError;
+
+  const { data: units, error: unitError } = await supabase
+    .from('equipment_units')
+    .select('id')
+    .eq('room_id', room.id)
+    .eq('equipment_type_id', equipType.id);
+  if (unitError) throw unitError;
+
+  const { data: resourcesData, error: resError } = await supabase
     .from('resources')
-    .select('id, label')
+    .select('id, ref_id')
     .eq('kind', 'equipment_unit')
-    .ilike('label', `%${equipmentType}%`);
-  if (equipError) throw equipError;
+    .in('ref_id', units.map(u => u.id));
+  if (resError) throw resError;
 
-  if (!allEquip.length) return [];
+  const resourceIds = resourcesData.map(r => r.id);
 
-  // Booked equipment
   const { data: conflicts, error: conflictError } = await supabase
     .from('bookings')
     .select('resource_id')
-    .in('resource_id', allEquip.map(e => e.id))
+    .in('resource_id', resourceIds)
     .in('status', ['confirmed', 'arrived'])
-    .filter('tstzrange(start_ts,end_ts,\'[)\')', 'overlaps', `[${startTime},${endTime})`);
+    .lt('start_ts', endTime)
+    .gt('end_ts', startTime);
   if (conflictError) throw conflictError;
 
-  const unavailable = new Set(conflicts.map(b => b.resource_id));
-  return allEquip.filter(e => !unavailable.has(e.id));
+  const unavailable = new Set(conflicts?.map(c => c.resource_id) ?? []);
+  return resourcesData.filter(r => !unavailable.has(r.id));
 };
