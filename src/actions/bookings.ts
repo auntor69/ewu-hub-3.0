@@ -1,3 +1,11 @@
+// Generate a random 10-character attendance code
+const generateAttendanceCode = () => {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  return Array.from({ length: 10 }, () =>
+    chars[Math.floor(Math.random() * chars.length)]
+  ).join('');
+};
+
 import { supabase } from '../lib/supabaseClient';
 
 export interface LibraryBookingParams {
