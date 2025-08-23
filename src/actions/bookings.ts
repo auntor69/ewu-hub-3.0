@@ -46,7 +46,7 @@ export const bookLibrarySeats = async (params: LibraryBookingParams): Promise<vo
     end_ts: params.end,
     status: 'confirmed' as const
     attendance_code: generateAttendanceCode() // 👈 new
-  }));
+}));
 
   const { error: bookingError } = await supabase
     .from('bookings')
