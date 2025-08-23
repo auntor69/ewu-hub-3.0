@@ -1,30 +1,28 @@
 import { supabase } from '../lib/supabaseClient';
 
-export const checkInByCode = async (code: string): Promise<void> => {
+export const checkInByCode = async (attendanceCode: string) => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
-  const { data: booking, error: findError } = await supabase
+  // Find booking by attendance code
+  const { data: booking, error: bookingError } = await supabase
     .from('bookings')
-    .select('id, booked_for, start_ts')
-    .eq('attendance_code', code)
-    .eq('status', 'confirmed')
+    .select('id, status')
+    .eq('attendance_code', attendanceCode)
     .single();
 
-  if (findError) throw new Error('Invalid attendance code');
-
-  // Check if within check-in window (15 minutes after start)
-  const startTime = new Date(booking.start_ts);
-  const now = new Date();
-  const timeDiff = now.getTime() - startTime.getTime();
-  
-  if (timeDiff > 15 * 60 * 1000) { // 15 minutes in milliseconds
-    throw new Error('Check-in window has expired');
+  if (bookingError || !booking) {
+    throw new Error('Invalid attendance code');
   }
 
+  if (booking.status === 'arrived') {
+    throw new Error('Already checked in');
+  }
+
+  // Update booking status
   const { error: updateError } = await supabase
     .from('bookings')
-    .update({ 
+    .update({
       status: 'arrived',
       checked_in_at: new Date().toISOString()
     })
@@ -32,10 +30,12 @@ export const checkInByCode = async (code: string): Promise<void> => {
 
   if (updateError) throw updateError;
 
-  // Log audit entry
+  // Log audit
   await supabase.from('audit_logs').insert({
     user_id: user.id,
     action: 'attendance.checkin',
-    payload: { booking_id: booking.id, attendance_code: code }
+    payload: { booking_id: booking.id, code: attendanceCode }
   });
+
+  return booking;
 };
