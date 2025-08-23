@@ -88,7 +88,7 @@ export const bookLabEquipment = async (params: LabBookingParams): Promise<void> 
     booked_for: user.id,
     start_ts: params.start,
     end_ts: params.end,
-    status: 'confirmed' as const
+    status: 'confirmed' as const,
     attendance_code: generateAttendanceCode()
   }));
 
