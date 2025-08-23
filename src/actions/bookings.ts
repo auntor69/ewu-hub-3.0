@@ -103,9 +103,7 @@ export const bookLabEquipment = async (params: LabBookingParams): Promise<void> 
     .select('resource_id')
     .in('resource_id', resourceIds)
     .in('status', ['confirmed', 'arrived'])
-    .lt('start_ts', params.end)
-    .gt('end_ts', params.start);
-
+    .or(`and(start_ts.lt.${params.end},end_ts.gt.${params.start})`);
   if (conflictError) throw conflictError;
 
   const unavailable = new Set(conflicts?.map(c => c.resource_id) ?? []);
@@ -197,15 +195,15 @@ export const getAvailableSeats = async (startTime: string, endTime: string) => {
   if (resError) throw resError;
 
   const seatIds = resourcesData.map(r => r.id);
+  if (seatIds.length === 0) return [];
 
-  // Find conflicts
+  // Find conflicts → overlap condition: (booking.start < requestedEnd) AND (booking.end > requestedStart)
   const { data: conflicts, error: conflictError } = await supabase
     .from('bookings')
     .select('resource_id')
     .in('resource_id', seatIds)
     .in('status', ['confirmed', 'arrived'])
-    .lt('start_ts', endTime)
-    .gt('end_ts', startTime);
+    .or(`and(start_ts.lt.${endTime},end_ts.gt.${startTime})`);
   if (conflictError) throw conflictError;
 
   const unavailable = new Set(conflicts?.map(c => c.resource_id) ?? []);
@@ -253,8 +251,7 @@ export const getAvailableEquipment = async (roomCode: string, equipmentType: str
     .select('resource_id')
     .in('resource_id', resourceIds)
     .in('status', ['confirmed', 'arrived'])
-    .lt('start_ts', endTime)
-    .gt('end_ts', startTime);
+    .or(`and(start_ts.lt.${endTime},end_ts.gt.${startTime})`);
   if (conflictError) throw conflictError;
 
   const unavailable = new Set(conflicts?.map(c => c.resource_id) ?? []);
