@@ -1,17 +1,23 @@
+// src/pages/student/LabBooking.tsx
 import React from 'react';
 import { FlaskConical, Clock, Cpu, Wrench } from 'lucide-react';
 import { Card, Button, FormRow, Select, Input, TimeRangePicker, PageTransition } from '../../lib/ui';
 import { useToast } from '../../lib/ui';
-import { bookLabEquipment } from '../../actions/bookings';
+import { bookLabEquipment, getAvailableEquipment } from '../../actions/bookings';
 
-export const LabBooking: React.FC = () => {
+export default function LabBooking() {
   const { addToast } = useToast();
+
   const [formData, setFormData] = React.useState({
+    roomCode: '',
     equipmentType: '',
-    units: 1
+    units: 1,
+    date: ''
   });
+
   const [timeRange, setTimeRange] = React.useState<{ start: string; end: string }>({ start: '', end: '' });
   const [loading, setLoading] = React.useState(false);
+  const [availableUnits, setAvailableUnits] = React.useState<number>(0);
 
   const equipmentOptions = [
     { value: '', label: 'Select Equipment Type' },
@@ -19,43 +25,59 @@ export const LabBooking: React.FC = () => {
     { value: 'engineering', label: 'Engineering Equipment' }
   ];
 
+  // helper to build ISO time
+  const buildISOTime = (time: string) => {
+    if (!formData.date || !time) return '';
+    return `${formData.date}T${time}:00`;
+  };
+
+  const fetchAvailability = async () => {
+    if (!formData.roomCode || !formData.equipmentType || !formData.date || !timeRange.start || !timeRange.end) {
+      return;
+    }
+    try {
+      const available = await getAvailableEquipment(
+        formData.roomCode,
+        formData.equipmentType,
+        buildISOTime(timeRange.start),
+        buildISOTime(timeRange.end)
+      );
+      setAvailableUnits(available.length);
+    } catch (err) {
+      console.error(err);
+      addToast({ type: 'error', message: 'Failed to load equipment availability' });
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!formData.equipmentType || !timeRange.start || !timeRange.end) {
-      addToast({
-        type: 'warning',
-        message: 'Please fill in all required fields'
-      });
+
+    if (!formData.roomCode || !formData.equipmentType || !formData.date || !timeRange.start || !timeRange.end) {
+      addToast({ type: 'warning', message: 'Please fill in all required fields' });
       return;
     }
 
     setLoading(true);
-    
     try {
       await bookLabEquipment({
+        roomCode: formData.roomCode,
         equipmentType: formData.equipmentType,
         units: formData.units,
-        start: timeRange.start,
-        end: timeRange.end
+        start: buildISOTime(timeRange.start),
+        end: buildISOTime(timeRange.end)
       });
 
-      addToast({
-        type: 'success',
-        message: 'Lab equipment booked successfully'
-      });
+      addToast({ type: 'success', message: 'Lab equipment booked successfully' });
+      setAvailableUnits(0);
     } catch (error) {
       console.error(error);
-      addToast({
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Failed to book lab equipment'
-      });
+      addToast({ type: 'error', message: error instanceof Error ? error.message : 'Booking failed' });
     } finally {
       setLoading(false);
     }
   };
 
-  const isFormValid = formData.equipmentType && timeRange.start && timeRange.end;
+  const isFormValid = formData.roomCode && formData.equipmentType && formData.date && timeRange.start && timeRange.end;
 
   return (
     <PageTransition>
@@ -71,10 +93,18 @@ export const LabBooking: React.FC = () => {
           <div className="lg:col-span-2">
             <Card title="Equipment Booking">
               <form onSubmit={handleSubmit} className="space-y-6">
+                <FormRow label="Room Code" required>
+                  <Input
+                    value={formData.roomCode}
+                    onChange={e => setFormData(prev => ({ ...prev, roomCode: e.target.value }))}
+                    placeholder="e.g. LAB101"
+                  />
+                </FormRow>
+
                 <FormRow label="Equipment Type" required>
                   <Select
                     value={formData.equipmentType}
-                    onChange={(e) => setFormData(prev => ({ ...prev, equipmentType: e.target.value }))}
+                    onChange={e => setFormData(prev => ({ ...prev, equipmentType: e.target.value }))}
                     options={equipmentOptions}
                   />
                 </FormRow>
@@ -85,17 +115,33 @@ export const LabBooking: React.FC = () => {
                     min={1}
                     max={20}
                     value={formData.units}
-                    onChange={(e) => setFormData(prev => ({ ...prev, units: parseInt(e.target.value) || 1 }))}
+                    onChange={e => setFormData(prev => ({ ...prev, units: parseInt(e.target.value) || 1 }))}
+                  />
+                  {availableUnits > 0 && (
+                    <p className="text-sm text-gray-500 mt-1">{availableUnits} unit(s) available</p>
+                  )}
+                </FormRow>
+
+                <FormRow label="Date" required>
+                  <Input
+                    type="date"
+                    value={formData.date}
+                    onChange={e => setFormData(prev => ({ ...prev, date: e.target.value }))}
                   />
                 </FormRow>
 
                 <div>
                   <h4 className="font-medium text-gray-900 mb-3">Time Slot</h4>
-                  <TimeRangePicker
-                    onChange={setTimeRange}
-                    maxMinutes={120}
-                    value={timeRange}
-                  />
+                  <TimeRangePicker value={timeRange} onChange={setTimeRange} maxMinutes={120} />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="mt-2"
+                    onClick={fetchAvailability}
+                    disabled={!isFormValid}
+                  >
+                    Check Availability
+                  </Button>
                 </div>
 
                 <Button
@@ -115,77 +161,44 @@ export const LabBooking: React.FC = () => {
 
           {/* Info Panel */}
           <div className="space-y-6">
-            <Card title="Equipment Types">
-              <div className="space-y-4">
-                <div className="flex items-start space-x-3">
-                  <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Cpu className="w-5 h-5 text-purple-600" />
-                  </div>
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-1">CSE Equipment</h4>
-                    <p className="text-sm text-gray-600">
-                      Computers, development boards, microcontrollers, and networking equipment.
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start space-x-3">
-                  <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Wrench className="w-5 h-5 text-orange-600" />
-                  </div>
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-1">Engineering Equipment</h4>
-                    <p className="text-sm text-gray-600">
-                      Mechanical tools, measuring instruments, and testing equipment.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </Card>
-
             <Card title="Booking Summary">
               <div className="space-y-4">
                 <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">Room:</span>
+                  <span className="font-medium">{formData.roomCode || '-'}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Equipment:</span>
                   <span className="font-medium">
-                    {formData.equipmentType ? 
-                      equipmentOptions.find(opt => opt.value === formData.equipmentType)?.label 
-                      : 'Not selected'
-                    }
+                    {formData.equipmentType
+                      ? equipmentOptions.find(opt => opt.value === formData.equipmentType)?.label
+                      : 'Not selected'}
                   </span>
                 </div>
-                
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Units:</span>
                   <span className="font-medium">{formData.units}</span>
                 </div>
-                
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">Duration:</span>
+                  <span className="text-gray-600">Date & Time:</span>
                   <span className="font-medium">
-                    {timeRange.start && timeRange.end 
-                      ? `${timeRange.start} - ${timeRange.end}`
-                      : 'Not selected'
-                    }
+                    {formData.date && timeRange.start && timeRange.end
+                      ? `${formData.date} ${timeRange.start} - ${timeRange.end}`
+                      : 'Not selected'}
                   </span>
                 </div>
               </div>
             </Card>
 
             <Card title="Quick Tips">
-              <div className="space-y-3">
+              <div className="space-y-3 text-sm text-gray-600">
                 <div className="flex items-start space-x-2">
                   <Clock className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-gray-600">
-                    Book equipment 1-7 days in advance for better availability
-                  </p>
+                  <p>Book equipment 1-7 days in advance for better availability</p>
                 </div>
-                
                 <div className="flex items-start space-x-2">
-                  <FlaskConical className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-gray-600">
-                    Check equipment condition before starting your session
-                  </p>
+                  <Cpu className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
+                  <p>Check equipment condition before starting your session</p>
                 </div>
               </div>
             </Card>
@@ -194,4 +207,4 @@ export const LabBooking: React.FC = () => {
       </div>
     </PageTransition>
   );
-};
+}
