@@ -1,3 +1,4 @@
+// src/pages/student/LibraryBooking.tsx
 import React from 'react';
 import { BookOpen, Clock } from 'lucide-react';
 import { Card, Button, TimeRangePicker, PageTransition } from '../../lib/ui';
@@ -6,15 +7,25 @@ import { bookLibrarySeats, getAvailableSeats } from '../../actions/bookings';
 
 export default function LibraryBooking() {
   const { addToast } = useToast();
+  const [date, setDate] = React.useState<string>(''); // new: date
   const [timeRange, setTimeRange] = React.useState<{ start: string; end: string }>({ start: '', end: '' });
   const [loading, setLoading] = React.useState(false);
   const [availableSeats, setAvailableSeats] = React.useState<any[]>([]);
   const [selectedSeats, setSelectedSeats] = React.useState<number[]>([]);
 
+  // helper → combine date + time
+  const buildISOTime = (time: string) => {
+    if (!date || !time) return '';
+    return `${date}T${time}:00`;
+  };
+
   const fetchSeats = async () => {
-    if (!timeRange.start || !timeRange.end) return;
+    if (!date || !timeRange.start || !timeRange.end) return;
     try {
-      const seats = await getAvailableSeats(timeRange.start, timeRange.end);
+      const seats = await getAvailableSeats(
+        buildISOTime(timeRange.start),
+        buildISOTime(timeRange.end)
+      );
       setAvailableSeats(seats);
       setSelectedSeats([]);
     } catch (error) {
@@ -25,8 +36,8 @@ export default function LibraryBooking() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!timeRange.start || !timeRange.end || selectedSeats.length === 0) {
-      addToast({ type: 'warning', message: 'Please select a time and at least one seat' });
+    if (!date || !timeRange.start || !timeRange.end || selectedSeats.length === 0) {
+      addToast({ type: 'warning', message: 'Please select date, time and at least one seat' });
       return;
     }
 
@@ -34,8 +45,8 @@ export default function LibraryBooking() {
     try {
       await bookLibrarySeats({
         selectedSeatIds: selectedSeats,
-        start: timeRange.start,
-        end: timeRange.end
+        start: buildISOTime(timeRange.start),
+        end: buildISOTime(timeRange.end)
       });
       addToast({ type: 'success', message: 'Seat(s) booked successfully!' });
       setSelectedSeats([]);
@@ -62,6 +73,18 @@ export default function LibraryBooking() {
           <div className="lg:col-span-2">
             <Card title="Seat Booking">
               <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Date */}
+                <div>
+                  <h4 className="font-medium mb-2">Date</h4>
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={e => setDate(e.target.value)}
+                    className="w-full border rounded-lg p-2"
+                  />
+                </div>
+
+                {/* Time range */}
                 <div>
                   <h4 className="font-medium mb-2">Time Slot</h4>
                   <TimeRangePicker value={timeRange} onChange={setTimeRange} maxMinutes={120} />
@@ -69,13 +92,14 @@ export default function LibraryBooking() {
                     type="button"
                     variant="secondary"
                     onClick={fetchSeats}
-                    disabled={!timeRange.start || !timeRange.end}
+                    disabled={!date || !timeRange.start || !timeRange.end}
                     className="mt-2"
                   >
                     Load Available Seats
                   </Button>
                 </div>
 
+                {/* Seats */}
                 <div>
                   <h4 className="font-medium mb-2">Select Seats</h4>
                   <div className="grid grid-cols-6 gap-2">
@@ -96,17 +120,18 @@ export default function LibraryBooking() {
                       ))
                     ) : (
                       <p className="col-span-6 text-sm text-gray-500">
-                        No seats loaded yet. Pick a time and click "Load Available Seats".
+                        No seats loaded yet. Pick a date & time and click "Load Available Seats".
                       </p>
                     )}
                   </div>
                 </div>
 
+                {/* Submit */}
                 <Button
                   type="submit"
                   variant="primary"
                   size="lg"
-                  disabled={selectedSeats.length === 0 || !timeRange.start}
+                  disabled={selectedSeats.length === 0 || !date || !timeRange.start}
                   loading={loading}
                   className="w-full"
                 >
@@ -117,6 +142,7 @@ export default function LibraryBooking() {
             </Card>
           </div>
 
+          {/* Sidebar summary */}
           <div className="space-y-6">
             <Card title="Summary">
               <div className="space-y-2 text-sm">
@@ -125,10 +151,21 @@ export default function LibraryBooking() {
                   <span className="font-medium">{selectedSeats.length}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Time:</span>
+                  <span>Date & Time:</span>
                   <span className="font-medium">
-                    {timeRange.start && timeRange.end ? `${timeRange.start} - ${timeRange.end}` : 'Not selected'}
+                    {date && timeRange.start && timeRange.end
+                      ? `${date} ${timeRange.start} - ${timeRange.end}`
+                      : 'Not selected'}
                   </span>
+                </div>
+              </div>
+            </Card>
+
+            <Card title="Tips">
+              <div className="text-sm space-y-2">
+                <div className="flex items-start space-x-2">
+                  <Clock className="w-4 h-4 text-purple-600 mt-0.5" />
+                  <p>Arrive within 15 minutes of your booking time.</p>
                 </div>
               </div>
             </Card>
