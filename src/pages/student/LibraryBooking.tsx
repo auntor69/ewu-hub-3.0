@@ -183,3 +183,5 @@ export const LibraryBooking: React.FC = () => {
     </PageTransition>
   );
 };
+
+export default LibraryBooking;
