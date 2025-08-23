@@ -1,6 +1,3 @@
-// TODO(Supabase): On Confirm → INSERT per-unit bookings for equipment
-// Enforce: 1-hour slots, max 2 hours total
-
 import React from 'react';
 import { FlaskConical, Clock, Cpu, Wrench } from 'lucide-react';
 import { Card, Button, FormRow, Select, Input, TimeRangePicker, PageTransition } from '../../lib/ui';
@@ -10,18 +7,11 @@ import { bookLabEquipment } from '../../actions/bookings';
 export const LabBooking: React.FC = () => {
   const { addToast } = useToast();
   const [formData, setFormData] = React.useState({
-    roomCode: '',
     equipmentType: '',
     units: 1
   });
   const [timeRange, setTimeRange] = React.useState<{ start: string; end: string }>({ start: '', end: '' });
   const [loading, setLoading] = React.useState(false);
-
-  // Generate room options (CLS-101 to CLS-620)
-  const roomOptions = [];
-  for (let i = 101; i <= 620; i++) {
-    roomOptions.push({ value: `CLS-${i}`, label: `CLS-${i}` });
-  }
 
   const equipmentOptions = [
     { value: '', label: 'Select Equipment Type' },
@@ -32,7 +22,7 @@ export const LabBooking: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.roomCode || !formData.equipmentType || !timeRange.start || !timeRange.end) {
+    if (!formData.equipmentType || !timeRange.start || !timeRange.end) {
       addToast({
         type: 'warning',
         message: 'Please fill in all required fields'
@@ -44,30 +34,28 @@ export const LabBooking: React.FC = () => {
     
     try {
       await bookLabEquipment({
-        roomCode: formData.roomCode,
         equipmentType: formData.equipmentType,
         units: formData.units,
         start: timeRange.start,
         end: timeRange.end
       });
+
+      addToast({
+        type: 'success',
+        message: 'Lab equipment booked successfully'
+      });
     } catch (error) {
-      if (error instanceof Error && error.message === "NOT_CONNECTED") {
-        addToast({
-          type: 'info',
-          message: 'Not connected yet — Supabase wiring comes next'
-        });
-      } else {
-        addToast({
-          type: 'error',
-          message: 'Failed to book lab equipment'
-        });
-      }
+      console.error(error);
+      addToast({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to book lab equipment'
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const isFormValid = formData.roomCode && formData.equipmentType && timeRange.start && timeRange.end;
+  const isFormValid = formData.equipmentType && timeRange.start && timeRange.end;
 
   return (
     <PageTransition>
@@ -83,14 +71,6 @@ export const LabBooking: React.FC = () => {
           <div className="lg:col-span-2">
             <Card title="Equipment Booking">
               <form onSubmit={handleSubmit} className="space-y-6">
-                <FormRow label="Room" required>
-                  <Select
-                    value={formData.roomCode}
-                    onChange={(e) => setFormData(prev => ({ ...prev, roomCode: e.target.value }))}
-                    options={roomOptions}
-                  />
-                </FormRow>
-
                 <FormRow label="Equipment Type" required>
                   <Select
                     value={formData.equipmentType}
@@ -116,16 +96,6 @@ export const LabBooking: React.FC = () => {
                     maxMinutes={120}
                     value={timeRange}
                   />
-                </div>
-
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                  <h4 className="font-medium text-blue-900 mb-2">Equipment Guidelines</h4>
-                  <ul className="text-sm text-blue-800 space-y-1">
-                    <li>• Equipment must be used within assigned time slots</li>
-                    <li>• Maximum 2 hours per booking session</li>
-                    <li>• Arrive within 15 minutes of start time</li>
-                    <li>• Report any equipment issues immediately</li>
-                  </ul>
                 </div>
 
                 <Button
@@ -175,13 +145,6 @@ export const LabBooking: React.FC = () => {
 
             <Card title="Booking Summary">
               <div className="space-y-4">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">Room:</span>
-                  <span className="font-medium">
-                    {formData.roomCode || 'Not selected'}
-                  </span>
-                </div>
-                
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Equipment:</span>
                   <span className="font-medium">
