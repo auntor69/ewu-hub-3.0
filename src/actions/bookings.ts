@@ -44,7 +44,7 @@ export const bookLibrarySeats = async (params: LibraryBookingParams): Promise<vo
     booked_for: user.id,
     start_ts: params.start,
     end_ts: params.end,
-    status: 'confirmed' as const
+    status: 'confirmed' as const,
     attendance_code: generateAttendanceCode() // 👈 new
 }));
 
