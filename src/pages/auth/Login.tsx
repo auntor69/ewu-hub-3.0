@@ -1,35 +1,43 @@
-import React, { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { useNavigate, Link, useLocation } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
+import { GraduationCap, Mail, Lock, AlertCircle } from "lucide-react";
+import { Button, Input, FormRow } from "../../lib/ui";
 
 export default function Login() {
-  const nav = useNavigate();
-  const { profile } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { profile, loading: authLoading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [err, setErr] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Get the intended destination from location state
+  const from = location.state?.from?.pathname || null;
+
   // Redirect if already logged in
-  React.useEffect(() => {
-    if (profile) {
-      nav(`/${profile.role}`);
+  useEffect(() => {
+    if (!authLoading && profile) {
+      const destination = from || `/${profile.role}`;
+      navigate(destination, { replace: true });
     }
-  }, [profile, nav]);
-  async function onSubmit(e: React.FormEvent) {
+  }, [profile, authLoading, navigate, from]);
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setErr(null); 
+    setError(null);
     setLoading(true);
     
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ 
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({ 
         email: email.trim(), 
         password 
       });
       
-      if (error) {
-        setErr(error.message);
+      if (signInError) {
+        setError(signInError.message);
         return;
       }
 
@@ -42,58 +50,112 @@ export default function Login() {
           .single();
 
         if (profileError) {
-          setErr("Failed to load user profile. Please try again.");
+          setError("Failed to load user profile. Please try again.");
           return;
         }
 
-        // Redirect based on role
+        // Redirect based on role or intended destination
         if (profileData?.role) {
-          nav(`/${profileData.role}`);
+          const destination = from || `/${profileData.role}`;
+          navigate(destination, { replace: true });
         } else {
-          nav("/");
+          setError("User profile not found. Please contact support.");
         }
       }
     } catch (error) {
-      setErr("An unexpected error occurred. Please try again.");
       console.error("Login error:", error);
+      setError("An unexpected error occurred. Please try again.");
     } finally {
       setLoading(false);
     }
   }
 
+  // Show loading state while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen grid place-items-center bg-gray-50">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8">
-        <h1 className="text-2xl font-bold mb-6 text-center">Sign in to EWU Hub</h1>
-        <form onSubmit={onSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm mb-1">Email</label>
-            <input
-              type="email"
-              className="w-full rounded-lg border px-3 py-2"
-              value={email} onChange={e => setEmail(e.target.value)} required
-            />
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8">
+        <div className="text-center">
+          <div className="flex justify-center">
+            <div className="w-16 h-16 bg-purple-600 rounded-2xl flex items-center justify-center">
+              <GraduationCap className="w-8 h-8 text-white" />
+            </div>
           </div>
-          <div>
-            <label className="block text-sm mb-1">Password</label>
-            <input
-              type="password"
-              className="w-full rounded-lg border px-3 py-2"
-              value={password} onChange={e => setPassword(e.target.value)} required
-            />
+          <h2 className="mt-6 text-3xl font-bold text-gray-900">
+            Sign in to EWU Hub
+          </h2>
+          <p className="mt-2 text-sm text-gray-600">
+            Access your university booking system
+          </p>
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-lg p-8">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <FormRow label="Email Address" required>
+              <div className="relative">
+                <Mail className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
+                <Input
+                  type="email"
+                  placeholder="Enter your email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="pl-10"
+                  required
+                />
+              </div>
+            </FormRow>
+
+            <FormRow label="Password" required>
+              <div className="relative">
+                <Lock className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
+                <Input
+                  type="password"
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="pl-10"
+                  required
+                />
+              </div>
+            </FormRow>
+
+            {error && (
+              <div className="flex items-center space-x-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+                <p className="text-sm text-red-600">{error}</p>
+              </div>
+            )}
+
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              loading={loading}
+              className="w-full"
+            >
+              Sign In
+            </Button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <p className="text-sm text-gray-600">
+              Don't have an account?{' '}
+              <Link 
+                to="/signup" 
+                className="font-medium text-purple-600 hover:text-purple-500 transition-colors"
+              >
+                Sign up here
+              </Link>
+            </p>
           </div>
-          {err && <p className="text-red-600 text-sm">{err}</p>}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-purple-600 text-white rounded-lg py-2 font-medium hover:bg-purple-700 disabled:opacity-50"
-          >
-            {loading ? "Signing in..." : "Sign In"}
-          </button>
-        </form>
-        <p className="text-sm text-center mt-4">
-          Don&apos;t have an account? <Link to="/signup" className="text-purple-600">Sign up</Link>
-        </p>
+        </div>
       </div>
     </div>
   );
