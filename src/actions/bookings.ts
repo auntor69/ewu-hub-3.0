@@ -7,13 +7,15 @@ export interface LibraryBookingParams {
 }
 
 export interface LabBookingParams {
-  roomCode: string;
-  equipmentType: string;
+  equipmentType: string; // match label in resources
   units: number;
   start: string;
   end: string;
 }
 
+//
+// LIBRARY BOOKING
+//
 export const bookLibrarySeats = async (params: LibraryBookingParams): Promise<void> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
@@ -24,7 +26,6 @@ export const bookLibrarySeats = async (params: LibraryBookingParams): Promise<vo
     .insert({ created_by: user.id })
     .select()
     .single();
-
   if (groupError) throw groupError;
 
   // Create individual seat bookings
@@ -41,7 +42,6 @@ export const bookLibrarySeats = async (params: LibraryBookingParams): Promise<vo
   const { error: bookingError } = await supabase
     .from('bookings')
     .insert(bookings);
-
   if (bookingError) throw bookingError;
 
   // Log audit entry
@@ -52,44 +52,29 @@ export const bookLibrarySeats = async (params: LibraryBookingParams): Promise<vo
   });
 };
 
+//
+// LAB BOOKING
+//
 export const bookLabEquipment = async (params: LabBookingParams): Promise<void> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
-  // Get room by code
-  const { data: room, error: roomError } = await supabase
-    .from('rooms')
-    .select('id')
-    .eq('code', params.roomCode)
-    .single();
-
-  if (roomError) throw new Error('Room not found');
-
-  // Get equipment type
-  const { data: equipmentType, error: equipTypeError } = await supabase
-    .from('equipment_types')
-    .select('id')
-    .eq('name', params.equipmentType)
-    .single();
-
-  if (equipTypeError) throw new Error('Equipment type not found');
-
-  // Get available equipment units
+  // Find available equipment resources
   const { data: equipment, error: equipError } = await supabase
-    .from('equipment_units')
-    .select('id, resources!inner(id)')
-    .eq('room_id', room.id)
-    .eq('equipment_type_id', equipmentType.id)
+    .from('resources')
+    .select('id')
+    .eq('kind', 'equipment_unit')
+    .ilike('label', `%${params.equipmentType}%`)
     .limit(params.units);
-
   if (equipError) throw equipError;
+
   if (!equipment || equipment.length < params.units) {
     throw new Error('Not enough equipment units available');
   }
 
-  // Create bookings for each unit
+  // Insert bookings
   const bookings = equipment.map(unit => ({
-    resource_id: unit.resources.id,
+    resource_id: unit.id,
     booked_by: user.id,
     booked_for: user.id,
     start_ts: params.start,
@@ -100,17 +85,19 @@ export const bookLabEquipment = async (params: LabBookingParams): Promise<void> 
   const { error: bookingError } = await supabase
     .from('bookings')
     .insert(bookings);
-
   if (bookingError) throw bookingError;
 
   // Log audit entry
   await supabase.from('audit_logs').insert({
     user_id: user.id,
     action: 'booking.create',
-    payload: { type: 'lab', room: params.roomCode, units: params.units }
+    payload: { type: 'lab', equipmentType: params.equipmentType, units: params.units }
   });
 };
 
+//
+// CANCEL BOOKING
+//
 export const cancelBooking = async (bookingId: string): Promise<void> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
@@ -120,10 +107,8 @@ export const cancelBooking = async (bookingId: string): Promise<void> => {
     .update({ status: 'cancelled' })
     .eq('id', bookingId)
     .eq('booked_by', user.id);
-
   if (error) throw error;
 
-  // Log audit entry
   await supabase.from('audit_logs').insert({
     user_id: user.id,
     action: 'booking.cancel',
@@ -131,6 +116,9 @@ export const cancelBooking = async (bookingId: string): Promise<void> => {
   });
 };
 
+//
+// USER BOOKINGS
+//
 export const getUserBookings = async () => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
@@ -144,99 +132,61 @@ export const getUserBookings = async () => {
       status,
       attendance_code,
       checked_in_at,
-      resources (
-        kind,
-        label
-      )
+      resources ( kind, label )
     `)
     .eq('booked_for', user.id)
     .order('start_ts', { ascending: false });
-
   if (error) throw error;
+
   return data;
 };
 
+//
+// AVAILABLE SEATS
+//
 export const getAvailableSeats = async (startTime: string, endTime: string) => {
-  // Get all library seat resources
+  // All library seats
   const { data: allSeats, error: seatsError } = await supabase
     .from('resources')
-    .select(`
-      id,
-      label,
-      library_seats (
-        table_id,
-        seat_no,
-        library_tables (
-          label
-        )
-      )
-    `)
+    .select('id, label')
     .eq('kind', 'library_seat');
-
   if (seatsError) throw seatsError;
 
-  // Get conflicting bookings
-  const { data: conflictingBookings, error: bookingsError } = await supabase
+  // Booked seats
+  const { data: conflicts, error: conflictError } = await supabase
     .from('bookings')
     .select('resource_id')
     .in('status', ['confirmed', 'arrived'])
-    .overlaps('tstzrange(start_ts, end_ts, \'[)\')', `[${startTime},${endTime})`);
+    .filter('tstzrange(start_ts,end_ts,\'[)\')', 'overlaps', `[${startTime},${endTime})`);
+  if (conflictError) throw conflictError;
 
-  if (bookingsError) throw bookingsError;
-
-  // Filter out unavailable seats
-  const unavailableResourceIds = new Set(conflictingBookings.map(b => b.resource_id));
-  const availableSeats = allSeats.filter(seat => !unavailableResourceIds.has(seat.id));
-
-  return availableSeats;
+  const unavailable = new Set(conflicts.map(b => b.resource_id));
+  return allSeats.filter(seat => !unavailable.has(seat.id));
 };
 
-export const getAvailableEquipment = async (roomCode: string, equipmentType: string, startTime: string, endTime: string) => {
-  // Get room
-  const { data: room, error: roomError } = await supabase
-    .from('rooms')
-    .select('id')
-    .eq('code', roomCode)
-    .single();
-
-  if (roomError) throw roomError;
-
-  // Get equipment type
-  const { data: equipType, error: equipTypeError } = await supabase
-    .from('equipment_types')
-    .select('id')
-    .eq('name', equipmentType)
-    .single();
-
-  if (equipTypeError) throw equipTypeError;
-
-  // Get all equipment units for this room and type
-  const { data: allEquipment, error: equipError } = await supabase
-    .from('equipment_units')
-    .select(`
-      id,
-      asset_tag,
-      resources!inner(id)
-    `)
-    .eq('room_id', room.id)
-    .eq('equipment_type_id', equipType.id);
-
+//
+// AVAILABLE EQUIPMENT
+//
+export const getAvailableEquipment = async (equipmentType: string, startTime: string, endTime: string) => {
+  // All equipment units
+  const { data: allEquip, error: equipError } = await supabase
+    .from('resources')
+    .select('id, label')
+    .eq('kind', 'equipment_unit')
+    .ilike('label', `%${equipmentType}%`);
   if (equipError) throw equipError;
 
-  // Get conflicting bookings
-  const resourceIds = allEquipment.map(e => e.resources.id);
-  const { data: conflictingBookings, error: bookingsError } = await supabase
+  if (!allEquip.length) return [];
+
+  // Booked equipment
+  const { data: conflicts, error: conflictError } = await supabase
     .from('bookings')
     .select('resource_id')
-    .in('resource_id', resourceIds)
+    .in('resource_id', allEquip.map(e => e.id))
     .in('status', ['confirmed', 'arrived'])
-    .overlaps('tstzrange(start_ts, end_ts, \'[)\')', `[${startTime},${endTime})`);
+    .filter('tstzrange(start_ts,end_ts,\'[)\')', 'overlaps', `[${startTime},${endTime})`);
+  if (conflictError) throw conflictError;
 
-  if (bookingsError) throw bookingsError;
-
-  // Filter out unavailable equipment
-  const unavailableResourceIds = new Set(conflictingBookings.map(b => b.resource_id));
-  const availableEquipment = allEquipment.filter(equip => !unavailableResourceIds.has(equip.resources.id));
-
-  return availableEquipment;
+  const unavailable = new Set(conflicts.map(b => b.resource_id));
+  return allEquip.filter(e => !unavailable.has(e.id));
 };
