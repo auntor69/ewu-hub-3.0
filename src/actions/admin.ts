@@ -4,7 +4,7 @@ export interface OpeningHoursPayload {
   dow: number;
   open: string;
   close: string;
-  closed: boolean;
+  closed: boolean
 }
 
 export const updatePenaltyStatus = async (
