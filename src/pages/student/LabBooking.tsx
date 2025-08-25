@@ -1,229 +1,181 @@
-import React from "react";
-import { FlaskConical, Clock, Cpu } from "lucide-react";
-import {
-  Card,
-  Button,
-  FormRow,
-  Select,
-  Input,
-  TimeRangePicker,
-  PageTransition,
-} from "../../lib/ui";
-import { useToast } from "../../lib/ui";
-import { bookLabEquipment, getAvailableEquipment } from "../../actions/bookings";
-import { supabase } from "../../lib/supabaseClient";
-import dayjs from "dayjs";
+// src/pages/LabBooking.tsx
+import React, { useState, useEffect } from "react";
+import { getAvailableEquipment, bookLabEquipment } from "../actions/bookings";
+import { supabase } from "../lib/supabaseClient";
 
 export default function LabBooking() {
-  const { addToast } = useToast();
-
-  const [formData, setFormData] = React.useState({
-    roomId: "",
-    equipmentTypeId: "",
+  const [rooms, setRooms] = useState<any[]>([]);
+  const [equipmentTypes, setEquipmentTypes] = useState<any[]>([]);
+  const [availableUnits, setAvailableUnits] = useState<any[]>([]);
+  const [formData, setFormData] = useState({
+    room: "",
+    equipmentType: "",
+    units: 1,
     date: "",
-  });
-
-  const [timeRange, setTimeRange] = React.useState<{ start: string; end: string }>({
     start: "",
     end: "",
   });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const [loading, setLoading] = React.useState(false);
-  const [availableUnits, setAvailableUnits] = React.useState<number>(0);
-  const [equipmentOptions, setEquipmentOptions] = React.useState<{ value: string; label: string }[]>([]);
-  const [roomOptions, setRoomOptions] = React.useState<{ value: string; label: string }[]>([]);
-
-  // Load rooms + equipment types
-  React.useEffect(() => {
+  // Load rooms and equipment types
+  useEffect(() => {
     const fetchData = async () => {
-      try {
-        const { data: roomsData, error: roomError } = await supabase
-          .from("rooms")
-          .select("id, code")
-          .in("id", [124, 125, 126, 127, 128]);
-        if (roomError) throw roomError;
+      const { data: roomData } = await supabase.from("rooms").select("id, code, name");
+      const { data: equipData } = await supabase.from("equipment_types").select("id, name");
 
-        setRoomOptions([{ value: "", label: "Select Room" }, ...roomsData.map((r) => ({ value: r.id.toString(), label: r.code }))]);
-
-        const { data: equipData, error: equipError } = await supabase
-          .from("equipment_types")
-          .select("id, name");
-        if (equipError) throw equipError;
-
-        setEquipmentOptions([{ value: "", label: "Select Equipment Type" }, ...equipData.map((e) => ({ value: e.id.toString(), label: e.name }))]);
-      } catch (err) {
-        console.error(err);
-        addToast({ type: "error", message: "Failed to load rooms or equipment types" });
-      }
+      setRooms(roomData || []);
+      setEquipmentTypes(equipData || []);
     };
-
     fetchData();
-  }, [addToast]);
+  }, []);
 
-  const buildISO = (date: string, time: string) =>
-    date && time ? dayjs(`${date}T${time}`).toISOString() : "";
+  // Handle form change
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
 
-  // Auto-check availability
-  React.useEffect(() => {
-    const fetchAvailability = async () => {
-      if (!formData.roomId || !formData.equipmentTypeId || !formData.date || !timeRange.start || !timeRange.end) {
-        setAvailableUnits(0);
-        return;
-      }
+  // Check availability
+  const checkAvailability = async () => {
+    setError(null);
+    try {
+      const startTime = `${formData.date}T${formData.start}:00`;
+      const endTime = `${formData.date}T${formData.end}:00`;
 
-      try {
-        const available = await getAvailableEquipment(
-          Number(formData.roomId),
-          Number(formData.equipmentTypeId),
-          buildISO(formData.date, timeRange.start),
-          buildISO(formData.date, timeRange.end)
-        );
-        setAvailableUnits(available.length);
-      } catch (err) {
-        console.error(err);
-        addToast({ type: "error", message: "Failed to load equipment availability" });
-        setAvailableUnits(0);
-      }
-    };
+      const data = await getAvailableEquipment(
+        formData.room,
+        Number(formData.equipmentType), // numeric ID ✅
+        startTime,
+        endTime
+      );
 
-    fetchAvailability();
-  }, [formData, timeRange, addToast]);
+      setAvailableUnits(data);
+      if (data.length === 0) setError("No units available for selected slot");
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
 
+  // Submit booking
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!formData.roomId || !formData.equipmentTypeId || !formData.date || !timeRange.start || !timeRange.end) {
-      addToast({ type: "warning", message: "Please fill in all required fields" });
-      return;
-    }
-
-    if (availableUnits < 1) {
-      addToast({ type: "error", message: "No available units to book" });
-      return;
-    }
-
     setLoading(true);
+    setError(null);
+
     try {
-      const chosen = await bookLabEquipment({
-        roomId: Number(formData.roomId),
-        equipmentTypeId: Number(formData.equipmentTypeId),
-        start: buildISO(formData.date, timeRange.start),
-        end: buildISO(formData.date, timeRange.end),
+      const startTime = `${formData.date}T${formData.start}:00`;
+      const endTime = `${formData.date}T${formData.end}:00`;
+
+      await bookLabEquipment({
+        roomCode: formData.room,
+        equipmentTypeId: Number(formData.equipmentType), // numeric ID ✅
+        units: Number(formData.units),
+        start: startTime,
+        end: endTime,
       });
 
-      addToast({ type: "success", message: `Booked unit ${chosen.asset_tag}` });
-      setAvailableUnits(0);
+      alert("Booking successful!");
+      setAvailableUnits([]);
     } catch (err: any) {
-      console.error(err);
-      addToast({ type: "error", message: err.message || "Booking failed" });
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const isFormValid =
-    formData.roomId && formData.equipmentTypeId && formData.date && timeRange.start && timeRange.end && availableUnits > 0;
-
   return (
-    <PageTransition>
-      <div className="space-y-8">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Lab Equipment Booking</h1>
-          <p className="text-gray-600 mt-2">Reserve equipment units for practical sessions and experiments.</p>
+    <div className="p-4">
+      <h2 className="text-xl font-bold mb-4">Lab Equipment Booking</h2>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Room */}
+        <select name="room" value={formData.room} onChange={handleChange} required>
+          <option value="">Select Room</option>
+          {rooms.map((room) => (
+            <option key={room.id} value={room.code}>
+              {room.name} ({room.code})
+            </option>
+          ))}
+        </select>
+
+        {/* Equipment Type */}
+        <select
+          name="equipmentType"
+          value={formData.equipmentType}
+          onChange={handleChange}
+          required
+        >
+          <option value="">Select Equipment Type</option>
+          {equipmentTypes.map((eq) => (
+            <option key={eq.id} value={eq.id}>
+              {eq.name}
+            </option>
+          ))}
+        </select>
+
+        {/* Units */}
+        <input
+          type="number"
+          name="units"
+          min="1"
+          value={formData.units}
+          onChange={handleChange}
+          placeholder="Number of units"
+          required
+        />
+
+        {/* Date */}
+        <input
+          type="date"
+          name="date"
+          value={formData.date}
+          onChange={handleChange}
+          required
+        />
+
+        {/* Start Time */}
+        <input
+          type="time"
+          name="start"
+          value={formData.start}
+          onChange={handleChange}
+          required
+        />
+
+        {/* End Time */}
+        <input
+          type="time"
+          name="end"
+          value={formData.end}
+          onChange={handleChange}
+          required
+        />
+
+        <button type="button" onClick={checkAvailability} className="px-4 py-2 bg-blue-500 text-white">
+          Check Availability
+        </button>
+
+        <button type="submit" disabled={loading} className="px-4 py-2 bg-green-600 text-white">
+          {loading ? "Booking..." : "Book"}
+        </button>
+      </form>
+
+      {/* Errors */}
+      {error && <p className="text-red-500 mt-2">{error}</p>}
+
+      {/* Availability */}
+      {availableUnits.length > 0 && (
+        <div className="mt-4">
+          <h3 className="font-semibold">Available Units:</h3>
+          <ul className="list-disc pl-6">
+            {availableUnits.map((u) => (
+              <li key={u.resource_id}>
+                Unit #{u.unit_id} — {u.asset_tag}
+              </li>
+            ))}
+          </ul>
         </div>
-
-        <div className="grid lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2">
-            <Card title="Equipment Booking">
-              <form onSubmit={handleSubmit} className="space-y-6">
-                <FormRow label="Room" required>
-                  <Select
-                    value={formData.roomId}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, roomId: e.target.value }))}
-                    options={roomOptions}
-                  />
-                </FormRow>
-
-                <FormRow label="Equipment Type" required>
-                  <Select
-                    value={formData.equipmentTypeId}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, equipmentTypeId: e.target.value }))}
-                    options={equipmentOptions}
-                  />
-                </FormRow>
-
-                <FormRow label="Date" required>
-                  <Input
-                    type="date"
-                    value={formData.date}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, date: e.target.value }))}
-                  />
-                </FormRow>
-
-                <div>
-                  <h4 className="font-medium text-gray-900 mb-3">Time Slot</h4>
-                  <TimeRangePicker value={timeRange} onChange={setTimeRange} maxMinutes={120} />
-                  {availableUnits > 0 && (
-                    <p className="text-sm text-gray-500 mt-2">
-                      {availableUnits} unit(s) available – 1 will be auto-assigned
-                    </p>
-                  )}
-                  {availableUnits === 0 && (
-                    <p className="text-sm text-red-500 mt-2">No units available for selected slot</p>
-                  )}
-                </div>
-
-                <Button type="submit" variant="primary" size="lg" disabled={!isFormValid} loading={loading} className="w-full">
-                  <FlaskConical className="w-4 h-4 mr-2" />
-                  Confirm Booking
-                </Button>
-              </form>
-            </Card>
-          </div>
-
-          <div className="space-y-6">
-            <Card title="Booking Summary">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">Room:</span>
-                  <span className="font-medium">{roomOptions.find((r) => r.value === formData.roomId)?.label || "-"}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">Equipment Type:</span>
-                  <span className="font-medium">
-                    {equipmentOptions.find((e) => e.value === formData.equipmentTypeId)?.label || "Not selected"}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">Units:</span>
-                  <span className="font-medium">1 (auto-assigned)</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">Date & Time:</span>
-                  <span className="font-medium">
-                    {formData.date && timeRange.start && timeRange.end
-                      ? `${formData.date} ${timeRange.start} - ${timeRange.end}`
-                      : "Not selected"}
-                  </span>
-                </div>
-              </div>
-            </Card>
-
-            <Card title="Quick Tips">
-              <div className="space-y-3 text-sm text-gray-600">
-                <div className="flex items-start space-x-2">
-                  <Clock className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
-                  <p>Book equipment 1–7 days in advance for better availability</p>
-                </div>
-                <div className="flex items-start space-x-2">
-                  <Cpu className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
-                  <p>Check equipment condition before starting your session</p>
-                </div>
-              </div>
-            </Card>
-          </div>
-        </div>
-      </div>
-    </PageTransition>
+      )}
+    </div>
   );
 }
