@@ -20,7 +20,7 @@ export default function LabBooking() {
 
   const [formData, setFormData] = React.useState({
     roomCode: '',
-    equipmentType: '',
+    equipmentType: '',   // stores id (as string)
     date: '',
   });
 
@@ -32,6 +32,7 @@ export default function LabBooking() {
   const [availableUnits, setAvailableUnits] = React.useState<number>(0);
   const [equipmentOptions, setEquipmentOptions] = React.useState<{ value: string; label: string }[]>([]);
   const [roomOptions, setRoomOptions] = React.useState<{ value: string; label: string }[]>([]);
+  const [equipmentMap, setEquipmentMap] = React.useState<Record<string, string>>({}); // id -> name
 
   // Load rooms and equipment types
   React.useEffect(() => {
@@ -44,9 +45,19 @@ export default function LabBooking() {
         if (roomError) throw roomError;
         setRoomOptions([{ value: '', label: 'Select Room' }, ...roomsData.map(r => ({ value: r.code, label: r.code }))]);
 
-        const { data: equipData, error: equipError } = await supabase.from('equipment_types').select('name');
+        const { data: equipData, error: equipError } = await supabase.from('equipment_types').select('id, name');
         if (equipError) throw equipError;
-        setEquipmentOptions([{ value: '', label: 'Select Equipment Type' }, ...equipData.map(d => ({ value: d.name, label: d.name }))]);
+
+        setEquipmentOptions([
+          { value: '', label: 'Select Equipment Type' },
+          ...equipData.map(d => ({ value: d.id.toString(), label: d.name }))
+        ]);
+
+        // build lookup map
+        const map: Record<string, string> = {};
+        equipData.forEach(d => { map[d.id.toString()] = d.name; });
+        setEquipmentMap(map);
+
       } catch (err: any) {
         console.error(err);
         addToast({ type: 'error', message: 'Failed to load rooms or equipment types' });
@@ -72,7 +83,7 @@ export default function LabBooking() {
       try {
         const available = await getAvailableEquipment(
           formData.roomCode,
-          formData.equipmentType,
+          Number(formData.equipmentType),   // ✅ FIX: pass ID as number
           buildISOTime(formData.date, timeRange.start),
           buildISOTime(formData.date, timeRange.end)
         );
@@ -105,7 +116,7 @@ export default function LabBooking() {
     try {
       await bookLabEquipment({
         roomCode: formData.roomCode,
-        equipmentType: formData.equipmentType,
+        equipmentType: equipmentMap[formData.equipmentType],  // ✅ FIX: pass name string to booking API
         units: 1,
         start: buildISOTime(formData.date, timeRange.start),
         end: buildISOTime(formData.date, timeRange.end),
@@ -192,7 +203,7 @@ export default function LabBooking() {
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Equipment:</span>
-                  <span className="font-medium">{formData.equipmentType || 'Not selected'}</span>
+                  <span className="font-medium">{equipmentMap[formData.equipmentType] || 'Not selected'}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Units:</span>
