@@ -217,7 +217,7 @@ export const getAvailableSeats = async (startTime: string, endTime: string) => {
  */
 export const getAvailableEquipment = async (
   roomCode: string,
-  equipmentTypeId: number,
+  equipmentTypeName: string,   // pass name, not numeric id
   startTime: string,
   endTime: string
 ) => {
@@ -230,19 +230,28 @@ export const getAvailableEquipment = async (
 
   if (roomError || !room) throw new Error("Room not found");
 
-  // 2. Get units for this room & equipment type
+  // 2. Get equipment type by name
+  const { data: equipType, error: equipError } = await supabase
+    .from("equipment_types")
+    .select("id")
+    .eq("name", equipmentTypeName)
+    .single();
+
+  if (equipError || !equipType) throw new Error("Equipment type not found");
+
+  // 3. Get units for this room & type
   const { data: units, error: unitsError } = await supabase
     .from("equipment_units")
-    .select("id, equipment_type_id, asset_tag")
+    .select("id, asset_tag")
     .eq("room_id", room.id)
-    .eq("equipment_type_id", equipmentTypeId);
+    .eq("equipment_type_id", equipType.id);
 
   if (unitsError) throw unitsError;
 
   const unitIds = units.map(u => u.id);
   if (unitIds.length === 0) return [];
 
-  // 3. Get resources wrapping those units
+  // 4. Map to resources
   const { data: resourcesData, error: resError } = await supabase
     .from("resources")
     .select("id, ref_id")
@@ -253,7 +262,7 @@ export const getAvailableEquipment = async (
 
   const resourceIds = resourcesData.map(r => r.id);
 
-  // 4. Find conflicts
+  // 5. Find conflicts (overlap)
   const { data: conflicts } = await supabase
     .from("bookings")
     .select("resource_id")
@@ -263,11 +272,15 @@ export const getAvailableEquipment = async (
 
   const unavailable = new Set(conflicts?.map(c => c.resource_id) ?? []);
 
-  // 5. Return available
+  // 6. Return available with asset_tag
   return resourcesData
     .filter(r => !unavailable.has(r.id))
     .map(r => {
       const unit = units.find(u => u.id === r.ref_id);
-      return { ...r, ...unit };
+      return {
+        resource_id: r.id,
+        unit_id: unit?.id,
+        asset_tag: unit?.asset_tag
+      };
     });
 };
