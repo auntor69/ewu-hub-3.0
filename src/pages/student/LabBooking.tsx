@@ -1,6 +1,5 @@
-// src/pages/student/LabBooking.tsx
-import React from 'react';
-import { FlaskConical, Clock, Cpu } from 'lucide-react';
+import React from "react";
+import { FlaskConical, Clock, Cpu } from "lucide-react";
 import {
   Card,
   Button,
@@ -9,90 +8,80 @@ import {
   Input,
   TimeRangePicker,
   PageTransition,
-} from '../../lib/ui';
-import { useToast } from '../../lib/ui';
-import { bookLabEquipment, getAvailableEquipment } from '../../actions/bookings';
-import { supabase } from '../../lib/supabaseClient';
-import dayjs from 'dayjs';
+} from "../../lib/ui";
+import { useToast } from "../../lib/ui";
+import { bookLabEquipment, getAvailableEquipment } from "../../actions/bookings";
+import { supabase } from "../../lib/supabaseClient";
+import dayjs from "dayjs";
 
 export default function LabBooking() {
   const { addToast } = useToast();
 
   const [formData, setFormData] = React.useState({
-    roomId: '',          // ✅ use numeric id instead of roomCode
-    equipmentType: '',   // stores id (as string)
-    date: '',
+    roomId: "",
+    equipmentTypeId: "",
+    date: "",
   });
 
   const [timeRange, setTimeRange] = React.useState<{ start: string; end: string }>({
-    start: '',
-    end: '',
+    start: "",
+    end: "",
   });
+
   const [loading, setLoading] = React.useState(false);
   const [availableUnits, setAvailableUnits] = React.useState<number>(0);
   const [equipmentOptions, setEquipmentOptions] = React.useState<{ value: string; label: string }[]>([]);
   const [roomOptions, setRoomOptions] = React.useState<{ value: string; label: string }[]>([]);
-  const [equipmentMap, setEquipmentMap] = React.useState<Record<string, string>>({}); // id -> name
 
-  // Load rooms and equipment types
+  // Load rooms + equipment types
   React.useEffect(() => {
     const fetchData = async () => {
       try {
-        // ✅ Only load valid lab rooms (124–128)
         const { data: roomsData, error: roomError } = await supabase
-          .from('rooms')
-          .select('id, code')
-          .in('id', [124, 125, 126, 127, 128]);
+          .from("rooms")
+          .select("id, code")
+          .in("id", [124, 125, 126, 127, 128]);
         if (roomError) throw roomError;
 
-        setRoomOptions([{ value: '', label: 'Select Room' }, ...roomsData.map(r => ({ value: r.id.toString(), label: r.code }))]);
+        setRoomOptions([{ value: "", label: "Select Room" }, ...roomsData.map((r) => ({ value: r.id.toString(), label: r.code }))]);
 
-        const { data: equipData, error: equipError } = await supabase.from('equipment_types').select('id, name');
+        const { data: equipData, error: equipError } = await supabase
+          .from("equipment_types")
+          .select("id, name");
         if (equipError) throw equipError;
 
-        setEquipmentOptions([
-          { value: '', label: 'Select Equipment Type' },
-          ...equipData.map(d => ({ value: d.id.toString(), label: d.name }))
-        ]);
-
-        // build lookup map
-        const map: Record<string, string> = {};
-        equipData.forEach(d => { map[d.id.toString()] = d.name; });
-        setEquipmentMap(map);
-
-      } catch (err: any) {
+        setEquipmentOptions([{ value: "", label: "Select Equipment Type" }, ...equipData.map((e) => ({ value: e.id.toString(), label: e.name }))]);
+      } catch (err) {
         console.error(err);
-        addToast({ type: 'error', message: 'Failed to load rooms or equipment types' });
+        addToast({ type: "error", message: "Failed to load rooms or equipment types" });
       }
     };
+
     fetchData();
   }, [addToast]);
 
-  // Build ISO string with date + time
-  const buildISOTime = (date: string, time: string) => {
-    if (!date || !time) return '';
-    return dayjs(`${date}T${time}`).toISOString();
-  };
+  const buildISO = (date: string, time: string) =>
+    date && time ? dayjs(`${date}T${time}`).toISOString() : "";
 
-  // Fetch availability automatically
+  // Auto-check availability
   React.useEffect(() => {
     const fetchAvailability = async () => {
-      if (!formData.roomId || !formData.equipmentType || !formData.date || !timeRange.start || !timeRange.end) {
+      if (!formData.roomId || !formData.equipmentTypeId || !formData.date || !timeRange.start || !timeRange.end) {
         setAvailableUnits(0);
         return;
       }
 
       try {
         const available = await getAvailableEquipment(
-          Number(formData.roomId),                 // ✅ use numeric room id
-          Number(formData.equipmentType),
-          buildISOTime(formData.date, timeRange.start),
-          buildISOTime(formData.date, timeRange.end)
+          Number(formData.roomId),
+          Number(formData.equipmentTypeId),
+          buildISO(formData.date, timeRange.start),
+          buildISO(formData.date, timeRange.end)
         );
         setAvailableUnits(available.length);
-      } catch (err: any) {
+      } catch (err) {
         console.error(err);
-        addToast({ type: 'error', message: 'Failed to load equipment availability' });
+        addToast({ type: "error", message: "Failed to load equipment availability" });
         setAvailableUnits(0);
       }
     };
@@ -100,42 +89,40 @@ export default function LabBooking() {
     fetchAvailability();
   }, [formData, timeRange, addToast]);
 
-  // Handle booking submit
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.roomId || !formData.equipmentType || !formData.date || !timeRange.start || !timeRange.end) {
-      addToast({ type: 'warning', message: 'Please fill in all required fields' });
+    if (!formData.roomId || !formData.equipmentTypeId || !formData.date || !timeRange.start || !timeRange.end) {
+      addToast({ type: "warning", message: "Please fill in all required fields" });
       return;
     }
 
     if (availableUnits < 1) {
-      addToast({ type: 'error', message: 'No available equipment units to book' });
+      addToast({ type: "error", message: "No available units to book" });
       return;
     }
 
     setLoading(true);
     try {
-      await bookLabEquipment({
-        roomId: Number(formData.roomId),                        // ✅ send id not code
-        equipmentType: equipmentMap[formData.equipmentType],    // name string
-        units: 1,
-        start: buildISOTime(formData.date, timeRange.start),
-        end: buildISOTime(formData.date, timeRange.end),
+      const chosen = await bookLabEquipment({
+        roomId: Number(formData.roomId),
+        equipmentTypeId: Number(formData.equipmentTypeId),
+        start: buildISO(formData.date, timeRange.start),
+        end: buildISO(formData.date, timeRange.end),
       });
 
-      addToast({ type: 'success', message: 'Lab equipment booked successfully' });
+      addToast({ type: "success", message: `Booked unit ${chosen.asset_tag}` });
       setAvailableUnits(0);
     } catch (err: any) {
       console.error(err);
-      addToast({ type: 'error', message: err.message || 'Booking failed' });
+      addToast({ type: "error", message: err.message || "Booking failed" });
     } finally {
       setLoading(false);
     }
   };
 
   const isFormValid =
-    formData.roomId && formData.equipmentType && formData.date && timeRange.start && timeRange.end && availableUnits > 0;
+    formData.roomId && formData.equipmentTypeId && formData.date && timeRange.start && timeRange.end && availableUnits > 0;
 
   return (
     <PageTransition>
@@ -146,22 +133,21 @@ export default function LabBooking() {
         </div>
 
         <div className="grid lg:grid-cols-3 gap-8">
-          {/* Booking Form */}
           <div className="lg:col-span-2">
             <Card title="Equipment Booking">
               <form onSubmit={handleSubmit} className="space-y-6">
                 <FormRow label="Room" required>
                   <Select
                     value={formData.roomId}
-                    onChange={e => setFormData(prev => ({ ...prev, roomId: e.target.value }))}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, roomId: e.target.value }))}
                     options={roomOptions}
                   />
                 </FormRow>
 
                 <FormRow label="Equipment Type" required>
                   <Select
-                    value={formData.equipmentType}
-                    onChange={e => setFormData(prev => ({ ...prev, equipmentType: e.target.value }))}
+                    value={formData.equipmentTypeId}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, equipmentTypeId: e.target.value }))}
                     options={equipmentOptions}
                   />
                 </FormRow>
@@ -170,7 +156,7 @@ export default function LabBooking() {
                   <Input
                     type="date"
                     value={formData.date}
-                    onChange={e => setFormData(prev => ({ ...prev, date: e.target.value }))}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, date: e.target.value }))}
                   />
                 </FormRow>
 
@@ -195,19 +181,18 @@ export default function LabBooking() {
             </Card>
           </div>
 
-          {/* Info Panel */}
           <div className="space-y-6">
             <Card title="Booking Summary">
               <div className="space-y-4">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Room:</span>
-                  <span className="font-medium">
-                    {roomOptions.find(r => r.value === formData.roomId)?.label || '-'}
-                  </span>
+                  <span className="font-medium">{roomOptions.find((r) => r.value === formData.roomId)?.label || "-"}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">Equipment:</span>
-                  <span className="font-medium">{equipmentMap[formData.equipmentType] || 'Not selected'}</span>
+                  <span className="text-gray-600">Equipment Type:</span>
+                  <span className="font-medium">
+                    {equipmentOptions.find((e) => e.value === formData.equipmentTypeId)?.label || "Not selected"}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Units:</span>
@@ -218,7 +203,7 @@ export default function LabBooking() {
                   <span className="font-medium">
                     {formData.date && timeRange.start && timeRange.end
                       ? `${formData.date} ${timeRange.start} - ${timeRange.end}`
-                      : 'Not selected'}
+                      : "Not selected"}
                   </span>
                 </div>
               </div>
@@ -228,7 +213,7 @@ export default function LabBooking() {
               <div className="space-y-3 text-sm text-gray-600">
                 <div className="flex items-start space-x-2">
                   <Clock className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
-                  <p>Book equipment 1-7 days in advance for better availability</p>
+                  <p>Book equipment 1–7 days in advance for better availability</p>
                 </div>
                 <div className="flex items-start space-x-2">
                   <Cpu className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
