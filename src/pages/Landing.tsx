@@ -95,7 +95,7 @@ export const Landing: React.FC = () => {
                   <span className="text-purple-600 block">Booking System</span>
                 </h1>
                 <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
-                  Streamline your university experience with intelligent booking management for libraries, labs, and classrooms. Built for Eastern Washington University.
+                  Streamline your university experience with intelligent booking management for libraries, labs, and classrooms. Built for East West University.
                 </p>
                 
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12">
