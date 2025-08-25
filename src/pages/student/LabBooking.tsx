@@ -1,7 +1,7 @@
 // src/pages/LabBooking.tsx
 import React, { useState, useEffect } from "react";
 import { getAvailableEquipment, bookLabEquipment } from "../../actions/bookings";
-import { supabase } from "../lib/supabaseClient";
+import { supabase } from "../../lib/supabaseClient";
 
 export default function LabBooking() {
   const [rooms, setRooms] = useState<any[]>([]);
