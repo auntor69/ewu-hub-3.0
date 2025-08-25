@@ -19,7 +19,7 @@ export default function LabBooking() {
   const { addToast } = useToast();
 
   const [formData, setFormData] = React.useState({
-    roomCode: '',
+    roomId: '',          // ✅ use numeric id instead of roomCode
     equipmentType: '',   // stores id (as string)
     date: '',
   });
@@ -38,12 +38,14 @@ export default function LabBooking() {
   React.useEffect(() => {
     const fetchData = async () => {
       try {
+        // ✅ Only load valid lab rooms (124–128)
         const { data: roomsData, error: roomError } = await supabase
           .from('rooms')
-          .select('code')
-          .eq('type', 'lab');
+          .select('id, code')
+          .in('id', [124, 125, 126, 127, 128]);
         if (roomError) throw roomError;
-        setRoomOptions([{ value: '', label: 'Select Room' }, ...roomsData.map(r => ({ value: r.code, label: r.code }))]);
+
+        setRoomOptions([{ value: '', label: 'Select Room' }, ...roomsData.map(r => ({ value: r.id.toString(), label: r.code }))]);
 
         const { data: equipData, error: equipError } = await supabase.from('equipment_types').select('id, name');
         if (equipError) throw equipError;
@@ -75,15 +77,15 @@ export default function LabBooking() {
   // Fetch availability automatically
   React.useEffect(() => {
     const fetchAvailability = async () => {
-      if (!formData.roomCode || !formData.equipmentType || !formData.date || !timeRange.start || !timeRange.end) {
+      if (!formData.roomId || !formData.equipmentType || !formData.date || !timeRange.start || !timeRange.end) {
         setAvailableUnits(0);
         return;
       }
 
       try {
         const available = await getAvailableEquipment(
-          formData.roomCode,
-          Number(formData.equipmentType),   // ✅ FIX: pass ID as number
+          Number(formData.roomId),                 // ✅ use numeric room id
+          Number(formData.equipmentType),
           buildISOTime(formData.date, timeRange.start),
           buildISOTime(formData.date, timeRange.end)
         );
@@ -102,7 +104,7 @@ export default function LabBooking() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.roomCode || !formData.equipmentType || !formData.date || !timeRange.start || !timeRange.end) {
+    if (!formData.roomId || !formData.equipmentType || !formData.date || !timeRange.start || !timeRange.end) {
       addToast({ type: 'warning', message: 'Please fill in all required fields' });
       return;
     }
@@ -115,8 +117,8 @@ export default function LabBooking() {
     setLoading(true);
     try {
       await bookLabEquipment({
-        roomCode: formData.roomCode,
-        equipmentType: equipmentMap[formData.equipmentType],  // ✅ FIX: pass name string to booking API
+        roomId: Number(formData.roomId),                        // ✅ send id not code
+        equipmentType: equipmentMap[formData.equipmentType],    // name string
         units: 1,
         start: buildISOTime(formData.date, timeRange.start),
         end: buildISOTime(formData.date, timeRange.end),
@@ -133,7 +135,7 @@ export default function LabBooking() {
   };
 
   const isFormValid =
-    formData.roomCode && formData.equipmentType && formData.date && timeRange.start && timeRange.end && availableUnits > 0;
+    formData.roomId && formData.equipmentType && formData.date && timeRange.start && timeRange.end && availableUnits > 0;
 
   return (
     <PageTransition>
@@ -148,10 +150,10 @@ export default function LabBooking() {
           <div className="lg:col-span-2">
             <Card title="Equipment Booking">
               <form onSubmit={handleSubmit} className="space-y-6">
-                <FormRow label="Room Code" required>
+                <FormRow label="Room" required>
                   <Select
-                    value={formData.roomCode}
-                    onChange={e => setFormData(prev => ({ ...prev, roomCode: e.target.value }))}
+                    value={formData.roomId}
+                    onChange={e => setFormData(prev => ({ ...prev, roomId: e.target.value }))}
                     options={roomOptions}
                   />
                 </FormRow>
@@ -199,7 +201,9 @@ export default function LabBooking() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Room:</span>
-                  <span className="font-medium">{formData.roomCode || '-'}</span>
+                  <span className="font-medium">
+                    {roomOptions.find(r => r.value === formData.roomId)?.label || '-'}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Equipment:</span>
