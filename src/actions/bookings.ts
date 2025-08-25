@@ -9,7 +9,7 @@ export interface LibraryBookingParams {
 
 export interface LabBookingParams {
   roomCode: string;
-  equipmentTypeId: number; // now numeric id, not string
+  equipmentTypeId: number; // numeric now
   units: number;
   start: string;
   end: string;
@@ -28,6 +28,7 @@ export const bookLibrarySeats = async (params: LibraryBookingParams): Promise<vo
     .insert({ created_by: user.id })
     .select()
     .single();
+
   if (groupError) throw groupError;
 
   // Insert individual bookings
@@ -44,6 +45,7 @@ export const bookLibrarySeats = async (params: LibraryBookingParams): Promise<vo
   const { error: bookingError } = await supabase
     .from('bookings')
     .insert(bookings);
+
   if (bookingError) throw bookingError;
 
   await supabase.from('audit_logs').insert({
@@ -135,6 +137,7 @@ export const cancelBooking = async (bookingId: string): Promise<void> => {
     .update({ status: 'cancelled' })
     .eq('id', bookingId)
     .eq('booked_by', user.id);
+
   if (error) throw error;
 
   await supabase.from('audit_logs').insert({
@@ -167,6 +170,7 @@ export const getUserBookings = async () => {
     `)
     .eq('booked_for', user.id)
     .order('start_ts', { ascending: false });
+
   if (error) throw error;
   return data;
 };
@@ -203,7 +207,7 @@ export const getAvailableSeats = async (startTime: string, endTime: string) => {
  */
 export const getAvailableEquipment = async (
   roomCode: string,
-  equipmentTypeId: number, // numeric id
+  equipmentTypeId: number,
   startTime: string,
   endTime: string
 ) => {
@@ -213,6 +217,7 @@ export const getAvailableEquipment = async (
     .select("id")
     .eq("code", roomCode)
     .single();
+
   if (roomError || !room) throw new Error("Room not found");
 
   // 2. Get units for this room/type
@@ -221,6 +226,7 @@ export const getAvailableEquipment = async (
     .select("id, asset_tag")
     .eq("room_id", room.id)
     .eq("equipment_type_id", equipmentTypeId);
+
   if (unitsError) throw unitsError;
 
   const unitIds = units.map(u => u.id);
@@ -232,11 +238,12 @@ export const getAvailableEquipment = async (
     .select("id, ref_id")
     .eq("kind", "equipment_unit")
     .in("ref_id", unitIds);
+
   if (resError) throw resError;
 
   const resourceIds = resourcesData.map(r => r.id);
 
-  // 4. Find conflicts
+  // 4. Find conflicts (overlap)
   const { data: conflicts } = await supabase
     .from("bookings")
     .select("resource_id")
