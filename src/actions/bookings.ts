@@ -215,45 +215,59 @@ export const getAvailableSeats = async (startTime: string, endTime: string) => {
 /**
  * Get available equipment in a room/type in a given time window
  */
-export const getAvailableEquipment = async (roomCode: string, equipmentType: string, startTime: string, endTime: string) => {
+export const getAvailableEquipment = async (
+  roomCode: string,
+  equipmentTypeId: number,
+  startTime: string,
+  endTime: string
+) => {
+  // 1. Get room
   const { data: room, error: roomError } = await supabase
-    .from('rooms')
-    .select('id')
-    .eq('code', roomCode)
+    .from("rooms")
+    .select("id")
+    .eq("code", roomCode)
     .single();
-  if (roomError || !room) throw roomError;
 
-  const { data: equipType, error: equipTypeError } = await supabase
-    .from('equipment_types')
-    .select('id')
-    .eq('name', equipmentType)
-    .single();
-  if (equipTypeError || !equipType) throw equipTypeError;
+  if (roomError || !room) throw new Error("Room not found");
 
-  const { data: units, error: unitError } = await supabase
-    .from('equipment_units')
-    .select('id')
-    .eq('room_id', room.id)
-    .eq('equipment_type_id', equipType.id);
-  if (unitError) throw unitError;
+  // 2. Get units for this room & equipment type
+  const { data: units, error: unitsError } = await supabase
+    .from("equipment_units")
+    .select("id, equipment_type_id, asset_tag")
+    .eq("room_id", room.id)
+    .eq("equipment_type_id", equipmentTypeId);
 
+  if (unitsError) throw unitsError;
+
+  const unitIds = units.map(u => u.id);
+  if (unitIds.length === 0) return [];
+
+  // 3. Get resources wrapping those units
   const { data: resourcesData, error: resError } = await supabase
-    .from('resources')
-    .select('id, ref_id')
-    .eq('kind', 'equipment_unit')
-    .in('ref_id', units.map(u => u.id));
+    .from("resources")
+    .select("id, ref_id")
+    .eq("kind", "equipment_unit")
+    .in("ref_id", unitIds);
+
   if (resError) throw resError;
 
   const resourceIds = resourcesData.map(r => r.id);
 
-  const { data: conflicts, error: conflictError } = await supabase
-    .from('bookings')
-    .select('resource_id')
-    .in('resource_id', resourceIds)
-    .in('status', ['confirmed', 'arrived'])
+  // 4. Find conflicts
+  const { data: conflicts } = await supabase
+    .from("bookings")
+    .select("resource_id")
+    .in("resource_id", resourceIds)
+    .in("status", ["confirmed", "arrived"])
     .or(`and(start_ts.lt.${endTime},end_ts.gt.${startTime})`);
-  if (conflictError) throw conflictError;
 
   const unavailable = new Set(conflicts?.map(c => c.resource_id) ?? []);
-  return resourcesData.filter(r => !unavailable.has(r.id));
+
+  // 5. Return available
+  return resourcesData
+    .filter(r => !unavailable.has(r.id))
+    .map(r => {
+      const unit = units.find(u => u.id === r.ref_id);
+      return { ...r, ...unit };
+    });
 };
