@@ -9,7 +9,7 @@ export interface LibraryBookingParams {
 
 export interface LabBookingParams {
   roomCode: string;
-  equipmentType: string;
+  equipmentTypeId: number; // now numeric id, not string
   units: number;
   start: string;
   end: string;
@@ -28,7 +28,6 @@ export const bookLibrarySeats = async (params: LibraryBookingParams): Promise<vo
     .insert({ created_by: user.id })
     .select()
     .single();
-
   if (groupError) throw groupError;
 
   // Insert individual bookings
@@ -45,7 +44,6 @@ export const bookLibrarySeats = async (params: LibraryBookingParams): Promise<vo
   const { error: bookingError } = await supabase
     .from('bookings')
     .insert(bookings);
-
   if (bookingError) throw bookingError;
 
   await supabase.from('audit_logs').insert({
@@ -70,20 +68,12 @@ export const bookLabEquipment = async (params: LabBookingParams): Promise<void> 
     .single();
   if (roomError || !room) throw new Error('Room not found');
 
-  // Get equipment type
-  const { data: equipmentType, error: equipTypeError } = await supabase
-    .from('equipment_types')
-    .select('id')
-    .eq('name', params.equipmentType)
-    .single();
-  if (equipTypeError || !equipmentType) throw new Error('Equipment type not found');
-
   // Get all equipment units in this room/type
   const { data: units, error: equipError } = await supabase
     .from('equipment_units')
     .select('id')
     .eq('room_id', room.id)
-    .eq('equipment_type_id', equipmentType.id);
+    .eq('equipment_type_id', params.equipmentTypeId);
   if (equipError) throw equipError;
   if (!units || units.length === 0) throw new Error('No equipment found for this room/type');
 
@@ -145,7 +135,6 @@ export const cancelBooking = async (bookingId: string): Promise<void> => {
     .update({ status: 'cancelled' })
     .eq('id', bookingId)
     .eq('booked_by', user.id);
-
   if (error) throw error;
 
   await supabase.from('audit_logs').insert({
@@ -178,7 +167,6 @@ export const getUserBookings = async () => {
     `)
     .eq('booked_for', user.id)
     .order('start_ts', { ascending: false });
-
   if (error) throw error;
   return data;
 };
@@ -197,7 +185,7 @@ export const getAvailableSeats = async (startTime: string, endTime: string) => {
   const seatIds = resourcesData.map(r => r.id);
   if (seatIds.length === 0) return [];
 
-  // Find conflicts → overlap condition: (booking.start < requestedEnd) AND (booking.end > requestedStart)
+  // Find conflicts
   const { data: conflicts, error: conflictError } = await supabase
     .from('bookings')
     .select('resource_id')
@@ -207,9 +195,7 @@ export const getAvailableSeats = async (startTime: string, endTime: string) => {
   if (conflictError) throw conflictError;
 
   const unavailable = new Set(conflicts?.map(c => c.resource_id) ?? []);
-  const availableSeats = resourcesData.filter(r => !unavailable.has(r.id));
-
-  return availableSeats;
+  return resourcesData.filter(r => !unavailable.has(r.id));
 };
 
 /**
@@ -217,7 +203,7 @@ export const getAvailableSeats = async (startTime: string, endTime: string) => {
  */
 export const getAvailableEquipment = async (
   roomCode: string,
-  equipmentTypeName: string,   // pass name, not numeric id
+  equipmentTypeId: number, // numeric id
   startTime: string,
   endTime: string
 ) => {
@@ -227,42 +213,30 @@ export const getAvailableEquipment = async (
     .select("id")
     .eq("code", roomCode)
     .single();
-
   if (roomError || !room) throw new Error("Room not found");
 
-  // 2. Get equipment type by name
-  const { data: equipType, error: equipError } = await supabase
-    .from("equipment_types")
-    .select("id")
-    .eq("name", equipmentTypeName)
-    .single();
-
-  if (equipError || !equipType) throw new Error("Equipment type not found");
-
-  // 3. Get units for this room & type
+  // 2. Get units for this room/type
   const { data: units, error: unitsError } = await supabase
     .from("equipment_units")
     .select("id, asset_tag")
     .eq("room_id", room.id)
-    .eq("equipment_type_id", equipType.id);
-
+    .eq("equipment_type_id", equipmentTypeId);
   if (unitsError) throw unitsError;
 
   const unitIds = units.map(u => u.id);
   if (unitIds.length === 0) return [];
 
-  // 4. Map to resources
+  // 3. Map to resources
   const { data: resourcesData, error: resError } = await supabase
     .from("resources")
     .select("id, ref_id")
     .eq("kind", "equipment_unit")
     .in("ref_id", unitIds);
-
   if (resError) throw resError;
 
   const resourceIds = resourcesData.map(r => r.id);
 
-  // 5. Find conflicts (overlap)
+  // 4. Find conflicts
   const { data: conflicts } = await supabase
     .from("bookings")
     .select("resource_id")
@@ -272,7 +246,7 @@ export const getAvailableEquipment = async (
 
   const unavailable = new Set(conflicts?.map(c => c.resource_id) ?? []);
 
-  // 6. Return available with asset_tag
+  // 5. Return available with asset_tag
   return resourcesData
     .filter(r => !unavailable.has(r.id))
     .map(r => {
