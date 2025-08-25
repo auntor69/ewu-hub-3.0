@@ -1,9 +1,10 @@
 // src/pages/student/LabBooking.tsx
 import React from 'react';
-import { FlaskConical, Clock, Cpu, Wrench } from 'lucide-react';
+import { FlaskConical, Clock, Cpu } from 'lucide-react';
 import { Card, Button, FormRow, Select, Input, TimeRangePicker, PageTransition } from '../../lib/ui';
 import { useToast } from '../../lib/ui';
 import { bookLabEquipment, getAvailableEquipment } from '../../actions/bookings';
+import { supabase } from '../../lib/supabaseClient';
 
 export default function LabBooking() {
   const { addToast } = useToast();
@@ -11,19 +12,27 @@ export default function LabBooking() {
   const [formData, setFormData] = React.useState({
     roomCode: '',
     equipmentType: '',
-    units: 1,
     date: ''
   });
 
   const [timeRange, setTimeRange] = React.useState<{ start: string; end: string }>({ start: '', end: '' });
   const [loading, setLoading] = React.useState(false);
   const [availableUnits, setAvailableUnits] = React.useState<number>(0);
+  const [equipmentOptions, setEquipmentOptions] = React.useState<{ value: string; label: string }[]>([]);
 
-  const equipmentOptions = [
-    { value: '', label: 'Select Equipment Type' },
-    { value: 'cse', label: 'CSE Equipment' },
-    { value: 'engineering', label: 'Engineering Equipment' }
-  ];
+  // Load real equipment types
+  React.useEffect(() => {
+    const fetchEquipmentTypes = async () => {
+      const { data, error } = await supabase.from('equipment_types').select('name');
+      if (error) {
+        console.error(error);
+        addToast({ type: 'error', message: 'Failed to load equipment types' });
+      } else {
+        setEquipmentOptions([{ value: '', label: 'Select Equipment Type' }, ...data.map(d => ({ value: d.name, label: d.name }))]);
+      }
+    };
+    fetchEquipmentTypes();
+  }, [addToast]);
 
   // helper to build ISO time
   const buildISOTime = (time: string) => {
@@ -62,7 +71,7 @@ export default function LabBooking() {
       await bookLabEquipment({
         roomCode: formData.roomCode,
         equipmentType: formData.equipmentType,
-        units: formData.units,
+        units: 1, // always auto-assign one unit
         start: buildISOTime(timeRange.start),
         end: buildISOTime(timeRange.end)
       });
@@ -109,19 +118,6 @@ export default function LabBooking() {
                   />
                 </FormRow>
 
-                <FormRow label="Number of Units (1-20)" required>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={formData.units}
-                    onChange={e => setFormData(prev => ({ ...prev, units: parseInt(e.target.value) || 1 }))}
-                  />
-                  {availableUnits > 0 && (
-                    <p className="text-sm text-gray-500 mt-1">{availableUnits} unit(s) available</p>
-                  )}
-                </FormRow>
-
                 <FormRow label="Date" required>
                   <Input
                     type="date"
@@ -142,6 +138,11 @@ export default function LabBooking() {
                   >
                     Check Availability
                   </Button>
+                  {availableUnits > 0 && (
+                    <p className="text-sm text-gray-500 mt-2">
+                      {availableUnits} unit(s) available – 1 will be auto-assigned
+                    </p>
+                  )}
                 </div>
 
                 <Button
@@ -169,15 +170,11 @@ export default function LabBooking() {
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Equipment:</span>
-                  <span className="font-medium">
-                    {formData.equipmentType
-                      ? equipmentOptions.find(opt => opt.value === formData.equipmentType)?.label
-                      : 'Not selected'}
-                  </span>
+                  <span className="font-medium">{formData.equipmentType || 'Not selected'}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Units:</span>
-                  <span className="font-medium">{formData.units}</span>
+                  <span className="font-medium">1 (auto-assigned)</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Date & Time:</span>
