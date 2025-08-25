@@ -1,136 +1,152 @@
-import React, { useState } from "react";
+"use client";
+
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { Calendar, Clock, Cpu, CheckCircle2, AlertCircle } from "lucide-react";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
 
 export default function LabBooking() {
-  const [equipment, setEquipment] = useState("Oscilloscope");
-  const [room, setRoom] = useState("1");
-  const [date, setDate] = useState("");
-  const [time, setTime] = useState("");
-  const [duration, setDuration] = useState("");
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [equipment, setEquipment] = useState("");
+  const [room, setRoom] = useState("");
+  const [date, setDate] = useState<Date | null>(null);
+  const [startTime, setStartTime] = useState("");
+  const [duration, setDuration] = useState("60");
+  const [availability, setAvailability] = useState(false);
+
+  const handleCheckAvailability = () => {
+    if (equipment && room && date && startTime && duration) {
+      setAvailability(true);
+    } else {
+      setAvailability(false);
+      alert("Please fill all fields before checking availability.");
+    }
+  };
 
   const handleBooking = () => {
-    if (!date || !time || !duration) {
-      setMessage({ type: "error", text: "Please fill all fields before booking." });
+    if (!availability) {
+      alert("Check availability first!");
       return;
     }
-    setMessage({ type: "success", text: "Booking confirmed successfully!" });
+    alert(
+      `Booked ${equipment} in Room ${room} on ${date?.toLocaleDateString()} at ${startTime} for ${duration} minutes.`
+    );
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-3xl mx-auto">
-        {/* Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-2xl shadow-lg p-8"
-        >
-          <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-            <Cpu className="w-6 h-6 text-purple-600" />
-            Lab Equipment Booking
-          </h2>
+    <div className="flex p-6 gap-6">
+      {/* Left Section: Booking Form */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="flex-1 bg-white p-6 rounded-2xl shadow-md"
+      >
+        <h2 className="text-xl font-bold mb-6">🔬 Lab Equipment Booking</h2>
 
-          {/* Equipment */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-600">Select Equipment</label>
-            <select
-              value={equipment}
-              onChange={(e) => setEquipment(e.target.value)}
-              className="w-full mt-2 border rounded-xl px-3 py-2 focus:ring-2 focus:ring-purple-500"
-            >
-              <option>Oscilloscope</option>
-              <option>Multimeter</option>
-              <option>Soldering Station</option>
-              <option>Power Supply</option>
-            </select>
-          </div>
+        {/* Equipment Selection */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium mb-1">Select Equipment</label>
+          <select
+            value={equipment}
+            onChange={(e) => setEquipment(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-400"
+          >
+            <option value="">-- Select Equipment --</option>
+            <option value="Oscilloscope">Oscilloscope</option>
+            <option value="Signal Generator">Signal Generator</option>
+            <option value="Multimeter">Multimeter</option>
+            <option value="Power Supply">Power Supply</option>
+          </select>
+        </div>
 
-          {/* Room */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-600">Room</label>
-            <input
-              type="text"
-              value={room}
-              onChange={(e) => setRoom(e.target.value)}
-              className="w-full mt-2 border rounded-xl px-3 py-2 focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
+        {/* Room Input */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium mb-1">Room</label>
+          <input
+            type="text"
+            value={room}
+            onChange={(e) => setRoom(e.target.value)}
+            placeholder="Enter room number"
+            className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-400"
+          />
+        </div>
 
-          {/* Date */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-600 flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-gray-500" /> Date
-            </label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full mt-2 border rounded-xl px-3 py-2 focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
+        {/* Date Picker */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium mb-1">Date</label>
+          <DatePicker
+            selected={date}
+            onChange={(d) => setDate(d)}
+            dateFormat="dd/MM/yyyy"
+            className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-400"
+            placeholderText="Select date"
+          />
+        </div>
 
-          {/* Time */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-600 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-gray-500" /> Start Time
-            </label>
-            <input
-              type="time"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-              className="w-full mt-2 border rounded-xl px-3 py-2 focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
+        {/* Start Time */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium mb-1">Start Time</label>
+          <input
+            type="time"
+            value={startTime}
+            onChange={(e) => setStartTime(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-400"
+          />
+        </div>
 
-          {/* Duration */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-600">Duration (hours)</label>
-            <input
-              type="number"
-              min="1"
-              value={duration}
-              onChange={(e) => setDuration(e.target.value)}
-              className="w-full mt-2 border rounded-xl px-3 py-2 focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
+        {/* Duration */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium mb-1">Duration</label>
+          <select
+            value={duration}
+            onChange={(e) => setDuration(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-400"
+          >
+            <option value="30">30 minutes</option>
+            <option value="60">1 hour</option>
+            <option value="120">2 hours</option>
+          </select>
+        </div>
 
-          {/* Actions */}
-          <div className="flex gap-4">
-            <button
-              onClick={() => setMessage({ type: "success", text: "Checked availability ✅" })}
-              className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-xl shadow"
-            >
-              Check Availability
-            </button>
-            <button
-              onClick={handleBooking}
-              className="bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded-xl shadow"
-            >
-              Book
-            </button>
-          </div>
+        {/* Action Buttons */}
+        <div className="flex gap-4">
+          <button
+            onClick={handleCheckAvailability}
+            className="flex-1 bg-blue-500 hover:bg-blue-600 text-white rounded-lg px-4 py-2 transition"
+          >
+            Check Availability
+          </button>
+          <button
+            onClick={handleBooking}
+            className="flex-1 bg-green-500 hover:bg-green-600 text-white rounded-lg px-4 py-2 transition"
+          >
+            Book
+          </button>
+        </div>
+      </motion.div>
 
-          {/* Message */}
-          {message && (
-            <div
-              className={`mt-6 flex items-center gap-2 text-sm px-4 py-3 rounded-xl ${
-                message.type === "success"
-                  ? "bg-green-100 text-green-700"
-                  : "bg-red-100 text-red-700"
-              }`}
-            >
-              {message.type === "success" ? (
-                <CheckCircle2 className="w-4 h-4" />
-              ) : (
-                <AlertCircle className="w-4 h-4" />
-              )}
-              {message.text}
-            </div>
+      {/* Right Section: Summary */}
+      <motion.div
+        initial={{ opacity: 0, x: 40 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.5 }}
+        className="w-80 bg-white p-6 rounded-2xl shadow-md"
+      >
+        <h3 className="text-lg font-semibold mb-4">Summary</h3>
+        <p><strong>Equipment:</strong> {equipment || "Not selected"}</p>
+        <p><strong>Room:</strong> {room || "Not selected"}</p>
+        <p><strong>Date:</strong> {date ? date.toLocaleDateString() : "Not selected"}</p>
+        <p><strong>Start Time:</strong> {startTime || "Not selected"}</p>
+        <p><strong>Duration:</strong> {duration} mins</p>
+        <p className="mt-4">
+          <strong>Status:</strong>{" "}
+          {availability ? (
+            <span className="text-green-600 font-medium">Available ✅</span>
+          ) : (
+            <span className="text-red-500 font-medium">Not Checked</span>
           )}
-        </motion.div>
-      </div>
+        </p>
+      </motion.div>
     </div>
   );
 }
