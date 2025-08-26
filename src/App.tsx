@@ -1,104 +1,127 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { ToastProvider } from './lib/ui';
-import { ProtectedRoute } from './components/ProtectedRoute';
-import AppShell from './components/AppShell';
+// src/actions/bookings.ts
+import { supabase } from "../lib/supabaseClient";
 
-// Pages
-import { Landing } from './pages/Landing';
-import Login from './pages/auth/Login';
-import Signup from './pages/auth/Signup';
-
-// Student Portal
-import { StudentDashboard } from './pages/student/Index';
-import LibraryBooking from './pages/student/LibraryBooking';
-import { MyBookings } from './pages/student/MyBookings';
-
-// Faculty Portal
-import { FacultyDashboard } from './pages/faculty/Index';
-import { RoomBooking } from './pages/faculty/RoomBooking';
-import { MyClasses } from './pages/faculty/MyClasses';
-
-// Staff Portal
-import { StaffDashboard } from './pages/staff/Index';
-import { CheckIn } from './pages/staff/CheckIn';
-import { TodayBookings } from './pages/staff/TodayBookings';
-
-// Admin Portal
-import { AdminDashboard } from './pages/admin/Index';
-import { UsersManagement } from './pages/admin/Users';
-import { PenaltiesManagement } from './pages/admin/Penalties';
-import { OpeningHours } from './pages/admin/OpeningHours';
-import { AuditLogs } from './pages/admin/AuditLogs';
-
-function App() {
-  return (
-    <ErrorBoundary>
-      <ToastProvider>
-        <Router>
-          <div className="min-h-screen bg-gray-50">
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/" element={<Landing />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/signup" element={<Signup />} />
-              
-              {/* Protected Routes - Student */}
-              <Route path="/student" element={
-                <ProtectedRoute allowedRoles={['student']}>
-                  <AppShell />
-                </ProtectedRoute>
-              }>
-                <Route index element={<StudentDashboard />} />
-                <Route path="library-booking" element={<LibraryBooking />} />
-                <Route path="lab-booking" element={<LabBooking />} />
-                <Route path="my-bookings" element={<MyBookings />} />
-              </Route>
-              
-              {/* Protected Routes - Faculty */}
-              <Route path="/faculty" element={
-                <ProtectedRoute allowedRoles={['faculty']}>
-                  <AppShell />
-                </ProtectedRoute>
-              }>
-                <Route index element={<FacultyDashboard />} />
-                <Route path="room-booking" element={<RoomBooking />} />
-                <Route path="my-classes" element={<MyClasses />} />
-              </Route>
-              
-              {/* Protected Routes - Staff */}
-              <Route path="/staff" element={
-                <ProtectedRoute allowedRoles={['staff']}>
-                  <AppShell />
-                </ProtectedRoute>
-              }>
-                <Route index element={<StaffDashboard />} />
-                <Route path="check-in" element={<CheckIn />} />
-                <Route path="today-bookings" element={<TodayBookings />} />
-              </Route>
-              
-              {/* Protected Routes - Admin */}
-              <Route path="/admin" element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <AppShell />
-                </ProtectedRoute>
-              }>
-                <Route index element={<AdminDashboard />} />
-                <Route path="users" element={<UsersManagement />} />
-                <Route path="penalties" element={<PenaltiesManagement />} />
-                <Route path="opening-hours" element={<OpeningHours />} />
-                <Route path="audit-logs" element={<AuditLogs />} />
-              </Route>
-
-              {/* Catch all route */}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </div>
-        </Router>
-      </ToastProvider>
-    </ErrorBoundary>
-  );
+/**
+ * ----------------------------
+ * Types
+ * ----------------------------
+ */
+export interface LibraryBookingParams {
+  selectedSeatIds: number[]; // resource IDs, not library_seats IDs
+  start: string;             // ISO string
+  end: string;               // ISO string
 }
 
-export default App;
+/**
+ * ----------------------------
+ * Helpers
+ * ----------------------------
+ */
+const overlapFilter = (startISO: string, endISO: string) =>
+  // overlap: (booking.start < requestedEnd) AND (booking.end > requestedStart)
+  `and(start_ts.lt.${endISO},end_ts.gt.${startISO})`;
+
+/**
+ * ----------------------------
+ * Library bookings
+ * ----------------------------
+ */
+export const bookLibrarySeats = async (params: LibraryBookingParams): Promise<void> => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  // create group
+  const { data: group, error: groupError } = await supabase
+    .from("booking_groups")
+    .insert({ created_by: user.id })
+    .select()
+    .single();
+  if (groupError) throw groupError;
+
+  // insert bookings
+  const rows = params.selectedSeatIds.map((resourceId) => ({
+    group_id: group.id,
+    resource_id: resourceId,
+    booked_by: user.id,
+    booked_for: user.id,
+    start_ts: params.start,
+    end_ts: params.end,
+    status: "confirmed" as const,
+  }));
+
+  const { error: insertErr } = await supabase.from("bookings").insert(rows);
+  if (insertErr) throw insertErr;
+
+  await supabase.from("audit_logs").insert({
+    user_id: user.id,
+    action: "booking.create",
+    payload: { type: "library", seats: params.selectedSeatIds.length, group_id: group.id },
+  });
+};
+
+/**
+ * ----------------------------
+ * Booking utilities
+ * ----------------------------
+ */
+export const cancelBooking = async (bookingId: string): Promise<void> => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const { error } = await supabase
+    .from("bookings")
+    .update({ status: "cancelled" })
+    .eq("id", bookingId)
+    .eq("booked_by", user.id);
+  if (error) throw error;
+
+  await supabase.from("audit_logs").insert({
+    user_id: user.id,
+    action: "booking.cancel",
+    payload: { booking_id: bookingId },
+  });
+};
+
+export const getUserBookings = async () => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const { data, error } = await supabase
+    .from("bookings")
+    .select(`
+      id,
+      start_ts,
+      end_ts,
+      status,
+      attendance_code,
+      checked_in_at,
+      resources ( kind, label )
+    `)
+    .eq("booked_for", user.id)
+    .order("start_ts", { ascending: false });
+  if (error) throw error;
+  return data;
+};
+
+// Seat availability for library
+export const getAvailableSeats = async (startTime: string, endTime: string) => {
+  const { data: resourcesData, error: resError } = await supabase
+    .from("resources")
+    .select("id, ref_id, label")
+    .eq("kind", "library_seat");
+  if (resError) throw resError;
+
+  const seatIds = resourcesData.map((r) => r.id);
+  if (seatIds.length === 0) return [];
+
+  const { data: conflicts, error: conflictError } = await supabase
+    .from("bookings")
+    .select("resource_id")
+    .in("resource_id", seatIds)
+    .in("status", ["confirmed", "arrived"])
+    .or(overlapFilter(endTime, startTime));
+  if (conflictError) throw conflictError;
+
+  const unavailable = new Set(conflicts?.map((c) => c.resource_id) ?? []);
+  return resourcesData.filter((r) => !unavailable.has(r.id));
+};
