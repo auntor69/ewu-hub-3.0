@@ -13,7 +13,6 @@ import Signup from './pages/auth/Signup';
 // Student Portal
 import { StudentDashboard } from './pages/student/Index';
 import LibraryBooking from './pages/student/LibraryBooking';
-import LabBooking from './pages/student/LabBooking';
 import { MyBookings } from './pages/student/MyBookings';
 
 // Faculty Portal
